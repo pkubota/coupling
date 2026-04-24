@@ -1,0 +1,45 @@
+OM_1deg with JRA55-do
+2016 1 1 0 0 0
+
+# ==============================================================================
+# Arquivos de saida
+# Nota: "ocean_model_z" requer DIAG_COORDS = "z Z ZSTAR" no MOM_input (ja configurado)
+# ==============================================================================
+"ocean_daily",  1, "days",  1, "days", "time"
+"ocean_static", -1, "months", 1, "days", "time"
+
+# ==============================================================================
+# Campos estaticos (grade) — modulo ocean_model, reducao "none"
+# ==============================================================================
+"ocean_model", "geolon",   "geolon",   "ocean_static", "all", "none", "none", 2
+"ocean_model", "geolat",   "geolat",   "ocean_static", "all", "none", "none", 2
+"ocean_model", "geolon_u", "geolon_u", "ocean_static", "all", "none", "none", 2
+"ocean_model", "geolat_u", "geolat_u", "ocean_static", "all", "none", "none", 2
+"ocean_model", "geolon_v", "geolon_v", "ocean_static", "all", "none", "none", 2
+"ocean_model", "geolat_v", "geolat_v", "ocean_static", "all", "none", "none", 2
+"ocean_model", "areacello", "area_t",  "ocean_static", "all", "none", "none", 2
+"ocean_model", "deptho",    "deptho",  "ocean_static", "all", "none", "none", 2
+
+# ==============================================================================
+# Campos 3D diarios — DEVEM usar "ocean_model_z" (coordenada z do DIAG_COORDS)
+# Os nomes internos do MOM6 sao: thetao, so, uo, vo
+# Usar "ocean_model" para 3D retorna NaN/undef porque o modulo nao tem eixo vertical
+# ==============================================================================
+"ocean_model_z", "thetao", "temp", "ocean_daily", "all", "mean", "none", 2
+"ocean_model_z", "so",     "salt", "ocean_daily", "all", "mean", "none", 2
+"ocean_model_z", "uo",     "u",    "ocean_daily", "all", "mean", "none", 2
+"ocean_model_z", "vo",     "v",    "ocean_daily", "all", "mean", "none", 2
+
+# ==============================================================================
+# Campos 2D diarios — modulo ocean_model
+# Nomes internos do MOM6: zos=SSH, tos=SST, sos=SSS, ePBL_h_ML=MLD, SSU, SSV
+# ==============================================================================
+"ocean_model", "zos",      "SSH",     "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "tos",      "SST",     "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "tos",      "SSTmin",  "ocean_daily", "all", "min",  "none", 2
+"ocean_model", "tos",      "SSTmax",  "ocean_daily", "all", "max",  "none", 2
+"ocean_model", "sos",      "SSS",     "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "ePBL_h_ML","MLD",     "ocean_daily", "all", "max",  "none", 2
+"ocean_model", "MLD_003",  "MLD_003", "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "SSU",      "SSU",     "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "SSV",      "SSV",     "ocean_daily", "all", "mean", "none", 2

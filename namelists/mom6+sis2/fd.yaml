@@ -1,0 +1,249 @@
+field_dictionary:
+  entries:
+
+  # --- Scalar ---
+  - standard_name: cpl_scalars
+    canonical_units: "1"
+    default_extrapolation: linear
+
+  # ============================================================
+  # IMPORT para o Oceano (fldsToOcn) - campos enviados ao MOM6
+  # ============================================================
+
+  # Do gelo (ice -> ocean)
+  - standard_name: Fioi_salt
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Fioi_meltw
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Fioi_melth
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  # Fluxos atmosfera-oceano (via mediador)
+  - standard_name: Foxx_taux
+    canonical_units: N/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_tauy
+    canonical_units: N/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_sen
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_evap
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Foxx_lwnet
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_swnet_vdr
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_swnet_vdf
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_swnet_idr
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_swnet_idf
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  # Precipitação
+  - standard_name: Faxa_rain
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Faxa_snow
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  # Pressão atmosférica
+  - standard_name: Sa_pslv
+    canonical_units: Pa
+    default_extrapolation: linear
+
+  # Runoff líquido e de gelo
+  - standard_name: Foxx_rofl
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Foxx_rofi
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  # Runoff de geleiras (GLC) - opcional
+  - standard_name: Forr_rofl_glc
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Forr_rofi_glc
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  # Fração de gelo e vento
+  - standard_name: Si_ifrac
+    canonical_units: "1"
+    default_extrapolation: zero
+
+  - standard_name: So_duu10n
+    canonical_units: m^2/s^2
+    default_extrapolation: zero
+
+  # Calor associado a fluxos de massa
+  - standard_name: Foxx_hrain
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_hsnow
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_hevap
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_hcond
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_hrofl
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_hrofi
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  # Calor de runoff de geleiras - opcional
+  - standard_name: Foxx_hrofl_glc
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Foxx_hrofi_glc
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  # Fração solar e Stokes - opcional
+  - standard_name: Sf_afracr
+    canonical_units: "1"
+    default_extrapolation: zero
+
+  - standard_name: Foxx_swnet_afracr
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Fioi_swpen_ifrac_n
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: Si_ifrac_n
+    canonical_units: "1"
+    default_extrapolation: zero
+
+  # Deposição de nitrogênio e poeira - opcional (BGC)
+  - standard_name: Faxa_ndep
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Faxa_dstwet
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Faxa_dstdry
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Faxa_bcph
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Fioi_flxdst
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Fioi_bcphi
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  - standard_name: Fioi_bcpho
+    canonical_units: kg/(m^2 s)
+    default_extrapolation: zero
+
+  # CO2 - opcional (BGC)
+  - standard_name: Sa_co2prog
+    canonical_units: mol/mol
+    default_extrapolation: linear
+
+  - standard_name: Sa_co2diag
+    canonical_units: mol/mol
+    default_extrapolation: linear
+
+  # Ondas de Stokes - opcional
+  - standard_name: Sw_lamult
+    canonical_units: "1"
+    default_extrapolation: zero
+
+  - standard_name: Sw_pstokes_x
+    canonical_units: m^2/s
+    default_extrapolation: zero
+
+  - standard_name: Sw_pstokes_y
+    canonical_units: m^2/s
+    default_extrapolation: zero
+
+  # ============================================================
+  # EXPORT do Oceano (fldsFrOcn) - campos enviados pelo MOM6
+  # ============================================================
+
+  - standard_name: So_omask
+    canonical_units: "1"
+    default_extrapolation: none
+
+  - standard_name: So_t
+    canonical_units: K
+    default_extrapolation: linear
+
+  - standard_name: So_s
+    canonical_units: g/kg
+    default_extrapolation: linear
+
+  - standard_name: So_u
+    canonical_units: m/s
+    default_extrapolation: zero
+
+  - standard_name: So_v
+    canonical_units: m/s
+    default_extrapolation: zero
+
+  - standard_name: So_dhdx
+    canonical_units: m/m
+    default_extrapolation: zero
+
+  - standard_name: So_dhdy
+    canonical_units: m/m
+    default_extrapolation: zero
+
+  - standard_name: Fioo_q
+    canonical_units: W/m^2
+    default_extrapolation: zero
+
+  - standard_name: So_bldepth
+    canonical_units: m
+    default_extrapolation: zero
+
+  # CO2 oceânico - opcional (BGC)
+  - standard_name: Faoo_fco2_ocn
+    canonical_units: mol/(m^2 s)
+    default_extrapolation: zero

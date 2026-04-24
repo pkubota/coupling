@@ -1,0 +1,116 @@
+"SWDN"  [Unused] (CMOR equivalent is "siflswdtop")
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: downward shortwave flux
+    ! units: W m-2
+    ! cell_methods: xT:mean yT:mean area:mean
+    ! variants: {SWDN,siflswdtop}
+"LWDN"  [Unused] (CMOR equivalent is "sifllwdtop")
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: downward longwave flux
+    ! units: W m-2
+    ! cell_methods: xT:mean yT:mean area:mean
+    ! variants: {LWDN,sifllwdtop}
+"ALB"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: surface albedo
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"coszen"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: cosine of the solar zenith angle for the next radiation step
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_abs_sfc"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW frac. abs. at the ice surface
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_abs_snow"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW frac. abs. in snow
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_abs_ice1"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW fraction absorbed in ice layer 1
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_abs_ice2"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW fraction absorbed in ice layer 2
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_abs_ice3"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW fraction absorbed in ice layer 3
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_abs_ice4"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW fraction absorbed in ice layer 4
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_pen"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW fraction penetrating the ice surface
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"sw_abs_ocn"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: SW fraction sent to the ocean
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"alb_vis_dir"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: ice surface albedo vis_dir
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"alb_vis_dif"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: ice surface albedo vis_dif
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"alb_nir_dir"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: ice surface albedo nir_dir
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"alb_nir_dif"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh
+    ! long_name: ice surface albedo nir_dif
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"Tskin"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh, ct
+    ! long_name: Skin temperature
+    ! units: degC
+    ! cell_methods: xT:mean yT:mean area:mean
+"CN_fast"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh, ct
+    ! long_name: Category concentration
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean
+"MI_fast"  [Unused]
+    ! modules: ice_model_fast
+    ! dimensions: xh, yh, ct
+    ! long_name: Category concentration
+    ! units: nondim
+    ! cell_methods: xT:mean yT:mean area:mean

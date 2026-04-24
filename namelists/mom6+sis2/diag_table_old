@@ -1,0 +1,27 @@
+OM_1deg with JRA55-do
+2016 1 1 0 0 0
+
+# Arquivos de saida
+"ocean_daily",  1, "days",  1, "days", "time"
+"ocean_static", -1, "months", 1, "days", "time"
+
+# Campos estaticos (grade)
+"ocean_model", "geolon",   "geolon",   "ocean_static", "all", .false., "none", 2
+"ocean_model", "geolat",   "geolat",   "ocean_static", "all", .false., "none", 2
+"ocean_model", "geolon_u", "geolon_u", "ocean_static", "all", .false., "none", 2
+"ocean_model", "geolat_u", "geolat_u", "ocean_static", "all", .false., "none", 2
+"ocean_model", "geolon_v", "geolon_v", "ocean_static", "all", .false., "none", 2
+"ocean_model", "geolat_v", "geolat_v", "ocean_static", "all", .false., "none", 2
+"ocean_model", "area_t",   "area_t",   "ocean_static", "all", .false., "none", 2
+
+# Campos 3D diarios
+"ocean_model", "temp",  "temp",  "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "salt",  "salt",  "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "u",     "u",     "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "v",     "v",     "ocean_daily", "all", "mean", "none", 2
+
+# Campos 2D diarios
+"ocean_model", "SSH",   "SSH",   "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "SST",   "SST",   "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "SSS",   "SSS",   "ocean_daily", "all", "mean", "none", 2
+"ocean_model", "MLD_003", "MLD_003", "ocean_daily", "all", "mean", "none", 2

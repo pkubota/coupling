@@ -1,0 +1,6 @@
+"OCN", "uas_jra",   "uas",  "./INPUT/JRA_uas.nc",  "bilinear", 1.0
+"OCN", "vas_jra",   "vas",  "./INPUT/JRA_vas.nc",  "bilinear", 1.0
+"OCN", "rsds_jra",  "rsds", "./INPUT/JRA_rsds.nc", "bilinear", 1.0
+"OCN", "rlds_jra",  "rlds", "./INPUT/JRA_rlds.nc", "bilinear", 1.0
+"OCN", "lprec_jra", "prra", "./INPUT/JRA_prra.nc", "bilinear", 1.0
+"OCN", "fprec_jra", "prsn", "./INPUT/JRA_prsn.nc", "bilinear", 1.0

@@ -1,0 +1,30 @@
+! Blank file in which we can put "overrides" for parameters
+!VERBOSITY = 9
+TIDEAMP_VARNAME = "tideamp"
+TOPO_VARNAME = "depth"
+TOPO_FILE = "topog.nc"
+ROUGHNESS_VARNAME = "h2"
+! === CORREÇÃO 1: Hierarquia DT correta ===
+#override DT = 1800.0
+#override DT_THERM = 3600.0
+! THERMO_SPANS_COUPLING = True já está no MOM_input, mantém
+
+! === CORREÇÃO 2: Tolerância para cold-start ===
+#override MAXTRUNC = 100000
+
+! === CORREÇÃO 3: Desativar marés temporariamente ===
+#override INT_TIDE_DISSIPATION = False
+#override READ_TIDEAMP = False
+
+! === CORREÇÃO 4: DTBT automático (remover valor fixo ruim) ===
+#override DTBT = -0.98
+
+! Desabilitar Langmuir (sem modelo de ondas conectado)
+!EPBL_LANGMUIR_SCHEME = "NONE"
+!USE_LA_LI2016 = False
+
+! Desabilitar FRAZIL (sem SIS2 conectado via NUOPC)
+!FRAZIL = False
+
+! Desabilitar verificações que dependem de forçante
+!GUST_CONST = 0.02               ! já está ? mantém turbulência mínima

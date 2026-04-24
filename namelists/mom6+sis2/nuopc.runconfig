@@ -1,0 +1,37 @@
+################################################################################
+# nuopc.runconfig
+#
+# Arquivo de configuracao de execucao do NUOPC.
+# Lido automaticamente pelo NUOPC_Driver se presente no diretorio de execucao.
+#
+# Este arquivo substitui/complementa o SetRunSequence definido em esm.F90.
+# Use-o para ajustar o passo de tempo sem recompilar.
+#
+# Sintaxe da runSeq:
+#   @<segundos>   - inicia um bloco que se repete a cada <segundos>
+#   OCN           - avanca o componente MOM6 (label definido em esm.F90)
+#   @             - encerra o bloco
+#
+# Componentes registrados em esm.F90:
+#   ATM  - DATM JRA55  (ATM_LABEL = "ATM")
+#   OCN  - MOM6+SIS2   (OCN_LABEL = "OCN")  <- SIS2 interno ao mom_cap.F90
+#
+# Ordem logica do ciclo de acoplamento:
+#   1. ATM avanca: le JRA55 e calcula fluxos bulk
+#   2. ATM -> OCN: transfere fluxos para o oceano
+#   3. OCN avanca: MOM6+SIS2 integra com os forcamentos recebidos
+#
+# Nota: ICE NAO aparece aqui porque o SIS2 esta encapsulado dentro
+#       do mom_cap.F90 (componente OCN unico exposto ao driver).
+################################################################################
+
+runSeq::
+  @10800
+    ATM
+    ATM -> MED
+    OCN -> MED
+    MED
+    MED -> OCN
+    OCN
+  @
+::
