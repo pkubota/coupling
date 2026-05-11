@@ -17,10 +17,12 @@
 !   Faxa_snow   - precipitacao solida   [kg m-2 s-1]                          !
 !                                                                              !
 ! CORRECOES APLICADAS:                                                         !
-!   1. epochTime corrigido para 2016-01-01 00:00:00 (era 01:30:00 - causava   !
-!      tidx0 negativo ou errado para runs iniciando em t=0).                   !
-!   2. Removida dependencia desnecessaria de MOM_io (stdout, io_infra_end).    !
-!   3. ReadJRAFieldByIndex removida (era codigo morto comentado com !PK).      !
+!   1. epochTime corrigido para 2016-01-01 00:00:00 (era 01:30:00).            !
+!   2. Removida dependencia desnecessaria de MOM_io.                           !
+!   3. ReadJRAFieldByIndex removida (era codigo morto).                        !
+!   4. B-DATM-01: epoch e dt_data migrados para nuopc.input (&nuopc_datm).    !
+!      Era hardcoded: yy=2016,mm=1,dd=1,h=1,m=30 e 10800s.                   !
+!      Agora: cfg_datm_epoch_year/month/day + cfg_datm_dt_data.               !
 !==============================================================================!
 module DATM_cap_mod
   use ESMF
@@ -52,6 +54,12 @@ module DATM_cap_mod
     model_label_DataInitialize => label_DataInitialize, &
     model_label_Advance        => label_Advance
   use NUOPC_Model, only: NUOPC_ModelGet
+
+  ! Configuracao runtime: epoch e passo do JRA55 vem de nuopc.input
+  use mpas_cap_config_mod, only: cfg_datm_epoch_year,  &
+                                 cfg_datm_epoch_month, &
+                                 cfg_datm_epoch_day,   &
+                                 cfg_datm_dt_data
   ! CORRECAO 2: removida dependencia de MOM_io (stdout, io_infra_end nao
   !   eram utilizados e acoplavam o DATM desnecessariamente ao MOM6).
   implicit none
@@ -606,12 +614,22 @@ contains
     ! o que causava sec_since_epoch < 0 para currTime = 2016-01-01 00:00:00
     ! e portanto tidx0 = 0, causando leitura com indice invalido (base 1).
     !--------------------------------------------------------------------------
-    call ESMF_TimeSet(epochTime, yy=2016, mm=1, dd=1, h=1, m=30, s=0, &
+    ! B-DATM-01: epoch lido de nuopc.input (&nuopc_datm datm_epoch_date).
+    ! Era hardcoded como yy=2016, mm=1, dd=1, h=1, m=30 -- causava
+    ! tidx negativo em qualquer simulacao fora desse periodo.
+    ! h=0, m=0 garante que o epoch e meia-noite do dia configurado,
+    ! coincidindo com o primeiro snapshot 00:00 do JRA55 diario/3h.
+    call ESMF_TimeSet(epochTime,                    &
+      yy=cfg_datm_epoch_year,                      &
+      mm=cfg_datm_epoch_month,                      &
+      dd=cfg_datm_epoch_day,                        &
+      h=0, m=0, s=0,                               &
       calkindflag=ESMF_CALKIND_GREGORIAN, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, file=__FILE__)) return
 
-    call ESMF_TimeIntervalSet(interval3h, s=10800, rc=rc)
+    ! B-DATM-01: passo dos dados lido de nuopc.input (datm_dt_data)
+    call ESMF_TimeIntervalSet(interval3h, s=cfg_datm_dt_data, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, file=__FILE__)) return
 
@@ -630,10 +648,11 @@ contains
     end if
 
     ! tidx0 e base-1 (primeiro snapshot = indice 1)
-    tidx0 = int(sec_since_epoch / 10800.0_ESMF_KIND_R8) + 1
+    ! B-DATM-01: divisao pelo passo configuravel (cfg_datm_dt_data)
+    tidx0 = int(sec_since_epoch / real(cfg_datm_dt_data, ESMF_KIND_R8)) + 1
     tidx1 = tidx0 + 1
-    alpha = real(mod(sec_since_epoch, 10800_ESMF_KIND_I8), ESMF_KIND_R8) / &
-            10800.0_ESMF_KIND_R8
+    alpha = real(mod(sec_since_epoch, int(cfg_datm_dt_data, ESMF_KIND_I8)), &
+                 ESMF_KIND_R8) / real(cfg_datm_dt_data, ESMF_KIND_R8)
     alpha = max(0.0_ESMF_KIND_R8, min(1.0_ESMF_KIND_R8, alpha))
 
     ! Leitura: apenas PET0 acessa o disco
