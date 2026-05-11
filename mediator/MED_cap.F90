@@ -18,7 +18,7 @@
 !   1. So_t (SST) realizado na grade OCN (era ATM - bug critico)               !
 !   2. InitializeDataComplete usa NUOPC_MediatorGet em vez de GridCompGet      !
 !   3. RegridOrCopy agora tem ramo else que copia direto se rh nao criado      !
-!   4. Busca por Sa_u10m_mpas (MPAS) em vez de Sa_u10m (DATM) no IDC          !
+!   4. Busca por Sa_u10m_mpas (MPAS) em vez de Sa_u10m (DATM) no IDC           !
 !==============================================================================!
 module MED_cap_mod
   use ESMF
@@ -64,7 +64,7 @@ module MED_cap_mod
   ! Valor 0.5 = conservador (maioria terra -> tratar como terra).
   real(ESMF_KIND_R8), parameter :: LFRAC_OCEAN_THRESHOLD = 0.5_ESMF_KIND_R8
 
-  ! Limiar de binarizacao da mascara apas regrid NEAREST_STOD.
+  ! Limiar de binarizacao da mascara apos regrid NEAREST_STOD.
   real(ESMF_KIND_R8), parameter :: MASK_BIN_THRESHOLD    = 0.5_ESMF_KIND_R8
 
   !----------------------------------------------------------------------------
@@ -83,6 +83,11 @@ module MED_cap_mod
     type(ESMF_Field) :: f_swidr_atm, f_swidf_atm
     type(ESMF_Field) :: f_rain_atm, f_snow_atm, f_pslv_atm
     type(ESMF_Field) :: f_ifrac_atm, f_duu10n_atm, f_sst_atm
+    type(ESMF_Field) :: f_sst_atm_tmp 
+    ! RouteHandles
+    type(ESMF_RouteHandle) :: rh_atm2ocn   ! ATM -> OCN
+    type(ESMF_RouteHandle) :: rh_ocn2atm_nearest
+    type(ESMF_RouteHandle) :: rh_ocn2atm   ! OCN -> ATM
 
     ! -----------------------------------------------------------------------
     ! NOVO: Campos de mascara oceano-continente
@@ -97,15 +102,23 @@ module MED_cap_mod
     type(ESMF_Field) :: f_ocn_mask_atm
     logical          :: mask_loaded = .false.
 
-    ! RouteHandles
-    type(ESMF_RouteHandle) :: rh_atm2ocn   ! ATM -> OCN
-    type(ESMF_RouteHandle) :: rh_ocn2atm   ! OCN -> ATM
 
     ! Mascara oceano/continente
     !PK real(ESMF_KIND_R8), allocatable :: ocn_mask_atm(:,:)
     
     logical :: rh_created    = .false.
     logical :: use_mpas_atm  = .false.  ! controlado por atributo NUOPC "use_mpas_atm"
+
+    ! Diagnosticos NetCDF: SST na grade ATM e na malha Voronoi MPAS
+    ! diag_step  : contador de passos (incrementado a cada MediatorAdvance)
+    ! diag_dir   : diretorio de saida (atributo NUOPC "med_diag_dir", default "./diag")
+    ! diag_freq  : frequencia de escrita em passos (atributo "med_diag_freq", default 1)
+    ! diag_enabled: .true. se diagnostico habilitado (atributo "med_diag_sst", default "false")
+    integer          :: diag_step    = 0
+    integer          :: diag_freq    = 1
+    logical          :: diag_enabled = .false.
+    character(len=256) :: diag_dir   = './diag'
+
   end type MED_InternalState
 
   type :: MED_InternalStateWrapper
@@ -113,11 +126,11 @@ module MED_cap_mod
   end type MED_InternalStateWrapper
 
   ! Campos de import do MPAS (primario) - com sufixo _mpas
-  integer, parameter :: n_import_mpas = 10   ! +1 para Sa_lfrac_mpas
+  integer, parameter :: n_import_mpas = 10   ! +1 para Sa_lfrac_mpas (fracao terra MONAN)
   character(len=32), parameter :: import_mpas_names(n_import_mpas) = [ &
     "Sa_u10m_mpas  ", "Sa_v10m_mpas  ", "Sa_tbot_mpas  ", "Sa_shum_mpas  ", "Sa_pslv_mpas  ", &
     "Faxa_swdn_mpas", "Faxa_lwdn_mpas", "Faxa_rain_mpas", "Faxa_snow_mpas", &
-    "Sa_lfrac_mpas " ]   ! NOVO: fracao de terra do MONAN para reconciliacao de mascara
+    "Sa_lfrac_mpas " ]   ! NOVO: fracao de terra do MONAN para reconciliacao de mascara costeira
 
   ! Campos de import do DATM (fallback) - sem sufixo
   integer, parameter :: n_import_datm = 9
@@ -237,7 +250,7 @@ contains
     ! O InternalState e criado uma unica vez, em InitializeRealize.
 
     use_mpas_atm_local = .false.
-    !PK ! Inicializar todos os campos lógicos do InternalState
+    !PK ! Inicializar todos os campos logicos do InternalState
     !PK is%use_mpas_atm = use_mpas_atm_advertise
     !PK is%rh_created   = .false.
     !PK 
@@ -279,16 +292,18 @@ contains
     ! -----------------------------------------------------------------------
     if (use_mpas_atm_local) then
       ! Modo MPAS: anuncia campos _mpas (fornecidos pelo MPAS_cap)
+      ! Sa_lfrac_mpas e opcional: nao abortar se o MONAN nao o oferecer
       do n = 1, n_import_mpas
         call NUOPC_Advertise(importState, StandardName=trim(import_mpas_names(n)), &
           TransferOfferGeomObject="cannot provide", &
           SharePolicyField="share", rc=localrc)
         ! Sa_lfrac_mpas e opcional: nao abortar se o MONAN nao o oferecer
-        if (localrc /= ESMF_SUCCESS .and. &
-            trim(import_mpas_names(n)) == "Sa_lfrac_mpas") then
-          call ESMF_LogWrite( &
-            'MED: AVISO - Sa_lfrac_mpas nao anunciado (MONAN nao exporta lndfrac)', &
-            ESMF_LOGMSG_WARNING)
+        if (trim(import_mpas_names(n)) == "Sa_lfrac_mpas") then
+          if (localrc /= ESMF_SUCCESS) then
+            call ESMF_LogWrite( &
+              'MED: AVISO - Sa_lfrac_mpas nao anunciado (MONAN nao exporta lndfrac)', &
+              ESMF_LOGMSG_WARNING)
+          end if
         else
           if (ESMF_LogFoundError(rcToCheck=localrc, msg=ESMF_LOGERR_PASSTHRU, &
             line=__LINE__, file=__FILE__)) then
@@ -310,7 +325,16 @@ contains
     end if
 
     ! Advertise So_t (SST do OCN) - sempre presente (conector OCN->MED ativo nos dois modos)
+    !           So_t (SST) e So_omask (mascara terra/oceano) do OCN - sempre presentes
     call NUOPC_Advertise(importState, StandardName="So_t", &
+      TransferOfferGeomObject="cannot provide", &
+      SharePolicyField="share", rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, file=__FILE__)) return
+
+    ! So_omask: mascara binaria MOM6 (1=oceano, 0=terra)
+    ! Usada em InitializeRealize para LoadOceanMask via So_omask OCN->MED
+    call NUOPC_Advertise(importState, StandardName="So_omask", &
       TransferOfferGeomObject="cannot provide", &
       SharePolicyField="share", rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
@@ -348,13 +372,22 @@ contains
     integer :: nxp_ocn, nyp_ocn
     real(ESMF_KIND_R8), pointer :: coordX(:,:), coordY(:,:)
     integer :: ncid, varid, dimid
-    real(ESMF_KIND_R8), allocatable :: ocn_lon(:,:), ocn_lat(:,:)
-    logical             :: isPresent, isSet
-    character(len=256)    :: attr_val
+    ! BUG FIX: aloca (nyp, nxp) para espelhar o layout NetCDF do supergrid.
+    ! NetCDF: x(nyp,nxp) dim0=lat(nyp) dim1=lon(nxp).
+    ! nf90_get_var (col-major Fortran): ocn_lon(i,j) = x_nc[i-1, j-1]
+    ! => ocn_lon(i,j) = longitude do ponto (lat_sg=i-1, lon_sg=j-1).
+    ! Acesso ponto T do OCN (ig,jg): ocn_lon(2*jg-1, 2*ig-1)
+    !   (jg = indice lat, ig = indice lon do OCN, ambos base-1 globais)
+    real(ESMF_KIND_R8), allocatable :: ocn_lon(:,:), ocn_lat(:,:),wet_g(:,:)
+    real(ESMF_KIND_R8) :: dlon
+    integer, pointer :: mask_ptr(:,:) => null()
+    logical             :: isPresent, isSet,file_ok
+    character(len=256)  :: attr_val
     character(len=256)  :: ocn_hgrid_file, ocn_mask_file
     character(len=256)  :: line_tag
-    integer :: clbnd(2), cubnd(2)   ! compute lower/upper bound (global index)
-    integer :: ig, jg               ! indices globais no grid OCN
+    integer :: clbnd(2), cubnd(2)   ! compute lower/upper bound do tile MPI
+    integer             :: localrc
+    integer :: ig, jg               ! indices globais OCN (base-1, lon e lat)
       
     rc = ESMF_SUCCESS
 
@@ -426,6 +459,38 @@ contains
       line=__LINE__, file=__FILE__)) return
     if (.not. (isPresent .and. isSet)) ocn_mask_file = 'INPUT/ocean_static.nc'
 
+    ! Configurar diagnosticos NetCDF de SST
+    is%diag_enabled = .false.
+    call NUOPC_CompAttributeGet(gcomp, name="med_diag_sst", &
+      value=attr_val, isPresent=isPresent, isSet=isSet, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, file=__FILE__)) return
+    if (isPresent .and. isSet) is%diag_enabled = (trim(attr_val) == "true")
+
+    is%diag_dir  = './diag'
+    call NUOPC_CompAttributeGet(gcomp, name="med_diag_dir", &
+      value=is%diag_dir, isPresent=isPresent, isSet=isSet, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, file=__FILE__)) return
+    if (.not. (isPresent .and. isSet)) is%diag_dir = './diag'
+
+    is%diag_freq = 1
+    call NUOPC_CompAttributeGet(gcomp, name="med_diag_freq", &
+      value=attr_val, isPresent=isPresent, isSet=isSet, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, file=__FILE__)) return
+    if (isPresent .and. isSet) read(attr_val, *) is%diag_freq
+
+    if (is%diag_enabled) then
+      write(line_tag,'(A,A,A,I0,A)') 'MED: diagnostico SST habilitado -> ', &
+        trim(is%diag_dir), ' (freq=', is%diag_freq, ' passos)'
+      call ESMF_LogWrite(trim(line_tag), ESMF_LOGMSG_INFO)
+      call execute_command_line('mkdir -p '//trim(is%diag_dir), wait=.true.)
+    else
+      call ESMF_LogWrite('MED: diagnostico SST DESABILITADO '// &
+        '(definir med_diag_sst=true no driver para habilitar)', ESMF_LOGMSG_INFO)
+    end if
+
     call ESMF_LogWrite('MED: lendo dimensoes OCN de '//trim(ocn_hgrid_file), ESMF_LOGMSG_INFO)
 
     ! Ler dimensoes do supergrid
@@ -435,7 +500,6 @@ contains
         msg="MED: falha ao abrir "//trim(ocn_hgrid_file)//": "//trim(nf90_strerror(rc)), &
         line=__LINE__, file=__FILE__, rcToReturn=rc); return
     end if
-
     rc = nf90_inq_dimid(ncid, "nxp", dimid)
     if (rc /= NF90_NOERR) then
       call ESMF_LogSetError(ESMF_FAILURE, &
@@ -443,7 +507,6 @@ contains
         line=__LINE__, file=__FILE__, rcToReturn=rc); return
     end if
     rc = nf90_inquire_dimension(ncid, dimid, len=nxp_ocn)
-
     rc = nf90_inq_dimid(ncid, "nyp", dimid)
     if (rc /= NF90_NOERR) then
       call ESMF_LogSetError(ESMF_FAILURE, &
@@ -451,9 +514,7 @@ contains
         line=__LINE__, file=__FILE__, rcToReturn=rc); return
     end if
     rc = nf90_inquire_dimension(ncid, dimid, len=nyp_ocn)
-
     rc = nf90_close(ncid)
-
     rc = ESMF_SUCCESS
 
     !--------------------------------------------------------------------------
@@ -471,23 +532,24 @@ contains
 
     ! Preencher coordenadas da grade ATM
     call ESMF_GridGetCoord(atm_grid, coordDim=1, staggerloc=ESMF_STAGGERLOC_CENTER, &
-      farrayPtr=coordX, rc=rc)
-    do j = lbound(coordX,2), ubound(coordX,2)
-      do i = lbound(coordX,1), ubound(coordX,1)
-        coordX(i,j) = (i-1)*(360.0_ESMF_KIND_R8/nx_atm) + &
+      farrayPtr=coordX, &
+      computationalLBound=clbnd, computationalUBound=cubnd, rc=rc)
+    do jg = clbnd(2), cubnd(2)
+      do ig = clbnd(1), cubnd(1)
+         coordX(ig, jg) = (ig-1)*(360.0_ESMF_KIND_R8/nx_atm) + &
                       (360.0_ESMF_KIND_R8/nx_atm)*0.5_ESMF_KIND_R8
       end do
     end do
 
     call ESMF_GridGetCoord(atm_grid, coordDim=2, staggerloc=ESMF_STAGGERLOC_CENTER, &
-      farrayPtr=coordY, rc=rc)
-    do j = lbound(coordY,2), ubound(coordY,2)
-      do i = lbound(coordY,1), ubound(coordY,1)
-        coordY(i,j) = -90.0_ESMF_KIND_R8 + (j-1)*(180.0_ESMF_KIND_R8/ny_atm) + &
-                      (180.0_ESMF_KIND_R8/ny_atm)/2.0_ESMF_KIND_R8
+      farrayPtr=coordY, &
+      computationalLBound=clbnd, computationalUBound=cubnd, rc=rc)
+    do jg = clbnd(2), cubnd(2)
+      do ig = clbnd(1), cubnd(1)
+        coordY(ig, jg) = -90.0_ESMF_KIND_R8 + (jg-1)*(180.0_ESMF_KIND_R8/ny_atm) + &
+                         (180.0_ESMF_KIND_R8/ny_atm)*0.5_ESMF_KIND_R8
       end do
     end do
-
     !--------------------------------------------------------------------------
     ! Criar grade OCN (nx_ocn x ny_ocn lidos de ocean_hgrid.nc)
     ! Coordenadas reais lidas do supergrid (pontos T = indices pares do supergrid)
@@ -502,9 +564,14 @@ contains
 
     write(*,'(A,2I6)') 'MED: grade OCN lida de ocean_hgrid.nc: nx_ocn x ny_ocn = ', nx_ocn, ny_ocn
     call ESMF_LogWrite('MED: dimensoes OCN lidas com sucesso', ESMF_LOGMSG_INFO)
+    !PK ocn_grid = ESMF_GridCreateNoPeriDim(minIndex=(/1,1/), maxIndex=(/nx_ocn, ny_ocn/), &
+    !PK   indexflag=ESMF_INDEX_GLOBAL, coordSys=ESMF_COORDSYS_SPH_DEG, rc=rc)
 
-    ocn_grid = ESMF_GridCreateNoPeriDim(minIndex=(/1,1/), maxIndex=(/nx_ocn, ny_ocn/), &
-      indexflag=ESMF_INDEX_GLOBAL, coordSys=ESMF_COORDSYS_SPH_DEG, rc=rc)
+    ocn_grid = ESMF_GridCreate1PeriDim(minIndex=(/1,1/), &
+                                      maxIndex=(/nx_ocn, ny_ocn/), &
+                                      indexflag=ESMF_INDEX_GLOBAL, &
+                                      coordSys=ESMF_COORDSYS_SPH_DEG, &
+                                      rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg="MED: falha ao criar grade OCN", &
       line=__LINE__, file=__FILE__)) return
 
@@ -512,6 +579,7 @@ contains
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, file=__FILE__)) return
 
+    ! Preencher coordenadas da grade OCN (simplificada - lat/lon regulares)
     !--------------------------------------------------------------------------
     ! Ler coordenadas reais do supergrid ocean_hgrid.nc
     ! O supergrid tem dimensoes (nyp, nxp) = (2*ny+1, 2*nx+1).
@@ -519,7 +587,22 @@ contains
     !   lon_T(i,j) = x_sg(2*j, 2*i)   i=0..nx-1, j=0..ny-1
     !   lat_T(i,j) = y_sg(2*j, 2*i)
     ! Em Fortran (base 1): x_sg(2*i-1, 2*j-1)
-    !--------------------------------------------------------------------------
+    ! BUG FIX (transposicao nxp/nyp):
+    !   NetCDF layout de x,y: (nyp, nxp)  -> dim0=lat, dim1=lon
+    !   nf90_get_var preenche col-major Fortran:
+    !     ocn_lon(i,j) = x_nc[i-1, j-1]  (i percorre nyp=lat, j percorre nxp=lon)
+    !   Portanto alocamos (nyp_ocn, nxp_ocn) para que:
+    !     ocn_lon(lat_sg, lon_sg) = longitude no supergrid
+    !   Acesso ao ponto T(ig, jg) [ig=col_lon base-1, jg=row_lat base-1]:
+    !     lon_T = ocn_lon(2*jg-1, 2*ig-1)   <- jg indexa dim1=lat, ig indexa dim2=lon
+    !     lat_T = ocn_lat(2*jg-1, 2*ig-1)
+    !
+    ! BUG FIX (indices globais MPI):
+    !   farrayPtr retorna a fatia LOCAL do processo MPI.
+    !   Em runs paralelas, lbound(coordX,1) pode ser > 1 (indice global).
+    !   Usamos ESMF_GridGetCoord com computationalLBound/UBound para obter
+    !   os indices globais ig, jg e mapear corretamente no supergrid global.
+    ! -----------------------------------------------------------------------
     allocate(ocn_lon(nxp_ocn, nyp_ocn))   ! (nxp, nyp) em ordem Fortran col-major
     allocate(ocn_lat(nxp_ocn, nyp_ocn))
 
@@ -605,7 +688,70 @@ contains
       ocn_lat(1,1), ocn_lat(2*nx_ocn-1,1), ocn_lat(1,2*ny_ocn-1), ocn_lat(2*nx_ocn-1,2*ny_ocn-1)
     call ESMF_LogWrite(trim(line_tag), ESMF_LOGMSG_INFO)
 
-   deallocate(ocn_lon, ocn_lat)
+   ! Apos as linhas de ESMF_GridGetCoord/fill para ocn_grid (apos linha ~663)
+   ! e ANTES de deallocate(ocn_lon, ocn_lat):
+    call ESMF_GridAddItem(ocn_grid, itemflag=ESMF_GRIDITEM_MASK, &
+        staggerloc=ESMF_STAGGERLOC_CENTER, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg="MED: falha GridAddItem MASK OCN", &
+        line=__LINE__, file=__FILE__)) return
+    call ESMF_GridGetItem(ocn_grid, itemflag=ESMF_GRIDITEM_MASK, &
+        staggerloc=ESMF_STAGGERLOC_CENTER, farrayPtr=mask_ptr, &
+        computationalLBound=clbnd, computationalUBound=cubnd, rc=rc)
+    ! Ler wet do ocean_static.nc (mesmo arquivo da LoadOceanMask)
+    ! wet_g(ny, nx) ? layout NetCDF: dim0=lat, dim1=lon
+    allocate(wet_g(nx_ocn, ny_ocn))
+    wet_g = 1.0_ESMF_KIND_R8
+    localrc = nf90_open(trim(ocn_mask_file), NF90_NOWRITE, ncid)
+!PK    if (localrc == NF90_NOERR) then
+!PK      localrc = nf90_inq_varid(ncid, "wet", varid)
+!PK      if (localrc == NF90_NOERR) localrc = nf90_get_var(ncid, varid, wet_g)
+!PK      localrc = nf90_close(ncid)
+!PK    end if
+!
+    if (localrc == NF90_NOERR) then
+      ! Tentar "wet" (MOM6/ocean_static.nc) depois "mask" (FRE ocean_mask.nc)
+      localrc = nf90_inq_varid(ncid, "wet", varid)
+!PK      if (localrc /= NF90_NOERR) &
+!PK        localrc = nf90_inq_varid(ncid, "mask", varid)
+
+      if (localrc == NF90_NOERR) then
+        localrc = nf90_get_var(ncid, varid, wet_g)
+        if (localrc == NF90_NOERR) then
+          file_ok = .true.
+        else
+          call ESMF_LogWrite( &
+            'MED LoadOceanMask: AVISO - falha lendo wet/mask; usando wet=1', &
+            ESMF_LOGMSG_WARNING)
+          wet_g = 1.0_ESMF_KIND_R8
+        end if
+      else
+        call ESMF_LogWrite( &
+          'MED LoadOceanMask: AVISO - var wet/mask nao encontrada; usando wet=1', &
+          ESMF_LOGMSG_WARNING)
+      end if
+      do jg = clbnd(2), cubnd(2)
+         do ig = clbnd(1), cubnd(1)
+            ! wet=0 -> terra  -> mask=0 (ESMF ignora onde mask=srcMaskValues)
+            ! wet=1 -> oceano -> mask=1
+          if (wet_g(ig, jg) > 0.5_ESMF_KIND_R8) then
+             mask_ptr(ig, jg) = 1
+          else
+             mask_ptr(ig, jg) = 0
+          end if
+        end do
+      end do
+
+
+      localrc = nf90_close(ncid)
+    else
+      call ESMF_LogWrite( &
+        'MED LoadOceanMask: AVISO - '//trim(ocn_mask_file)//' nao aberto; usando wet=1', &
+        ESMF_LOGMSG_WARNING)
+    end if
+
+
+    deallocate(wet_g)
+    deallocate(ocn_lon, ocn_lat)
 
     !--------------------------------------------------------------------------
     ! Realizar campos de import conforme a fonte atmosferica configurada.
@@ -646,6 +792,16 @@ contains
       line=__LINE__, file=__FILE__)) return
     call NUOPC_Realize(importState, field=tmp_field, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, file=__FILE__)) return
+
+    ! So_omask: mascara terra/oceano do MOM6, recebida via conector OCN->MED
+    ! Grade nativa e ocn_grid; realizada aqui para o conector poder conectar
+    tmp_field = ESMF_FieldCreate(grid=ocn_grid, typekind=ESMF_TYPEKIND_R8, &
+      staggerloc=ESMF_STAGGERLOC_CENTER, name="So_omask", rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg="MED: falha criar campo So_omask", &
+      line=__LINE__, file=__FILE__)) return
+    call NUOPC_Realize(importState, field=tmp_field, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg="MED: falha realizar So_omask", &
       line=__LINE__, file=__FILE__)) return
 
     !--------------------------------------------------------------------------
@@ -695,6 +851,7 @@ contains
     call CreateInternalField(is%f_duu10n_atm, atm_grid, "med_duu10n", rc)
     ! f_sst_atm: campo de SST interpolado para a grade ATM (destino do OCN->ATM)
     call CreateInternalField(is%f_sst_atm,    atm_grid, "med_sst",    rc)
+    call CreateInternalField(is%f_sst_atm_tmp,    atm_grid, "med_sst_tmp",    rc)
 
     ! Zerar campos internos
     call ZeroInternalField(is%f_taux_atm,   rc)
@@ -714,11 +871,12 @@ contains
     ! Inicializa SST com valor padrao (nao zero, para evitar bulk erratico no t=0)
     !PK call ZeroInternalField(is%f_sst_atm,    rc)
     call FillInternalField(is%f_sst_atm, SST_default, rc)
+    call FillInternalField(is%f_sst_atm_tmp, SST_default, rc)
 
     ! -----------------------------------------------------------------------
     ! NOVO: Carregar mascara oceano-continente do MOM6.
     ! LoadOceanMask le ocean_static.nc (variavel "wet"), realiza regrid
-    ! NEAREST_STOD OCN->ATM, binariza e armazena em is%f_ocn_mask_atm.
+    ! NEAREST_STOD OCN->ATM, binariza e armazena em is%f_ocn_mask_atm. Nao e fatal se falhar.
     ! Deve ser chamado APOS is%ocn_grid e is%atm_grid estarem definidos.
     ! -----------------------------------------------------------------------
     call LoadOceanMask(gcomp, is, trim(ocn_mask_file), nx_ocn, ny_ocn, rc)
@@ -726,7 +884,7 @@ contains
       call ESMF_LogWrite( &
         'MED: AVISO - LoadOceanMask falhou; prosseguindo sem mascara explicita', &
         ESMF_LOGMSG_WARNING)
-      rc = ESMF_SUCCESS   ! nao abortar ? mascara e auxiliar, nao critica
+      rc = ESMF_SUCCESS   ! nao abortar - mascara e auxiliar, nao critica
     end if
 
     call ESMF_GridCompSetInternalState(gcomp, iswrap, rc)
@@ -769,6 +927,7 @@ contains
     integer :: ig, jg, iloc, jloc          ! indices globais e locais
     integer :: clbnd(2), cubnd(2)          ! bounds globais do tile MPI local
     real(ESMF_KIND_R8), pointer     :: mptr_ocn(:,:), mptr_atm(:,:)
+    integer, pointer :: mask_ptr(:,:) => null()
     ! wet_g(ny, nx): mascara global lida do NetCDF.
     ! Alocada com (ny_ocn_arg, nx_ocn_arg) para espelhar dim0=lat, dim1=lon.
     real(ESMF_KIND_R8), allocatable :: wet_g(:,:)
@@ -860,6 +1019,7 @@ contains
       do ig = clbnd(1), cubnd(1)
         iloc = ig - clbnd(1) + 1
         mptr_ocn(ig, jg) = wet_g(ig, jg)   
+        !mptr_ocn(iloc, jloc) = wet_g(ig, jg)     ! era mptr_ocn(ig,jg)=wet_g(ig,jg)
       end do
     end do
     deallocate(wet_g)   ! liberado aqui em TODOS os caminhos de sucesso
@@ -910,7 +1070,7 @@ contains
 
     is%mask_loaded = .true.
     call ESMF_LogWrite( &
-      'MED: mascara oceano-continente carregada e interpolada para grade ATM', &
+      'MED: mascara OCN carregada e interpolada para grade ATM', &
       ESMF_LOGMSG_INFO)
 
   end subroutine LoadOceanMask
@@ -918,10 +1078,11 @@ contains
   !============================================================================
   ! ReconcileCoastalMask
   !
-  ! Reconcilia a mascara de terra/oceano do MED com a fracao de terra
+  ! Reconcilia a mascara MOM6 de terra/oceano do MED com a fracao de terra
   ! exportada pelo MONAN (Sa_lfrac_mpas).
+  ! No-op se mask_loaded=.false. ou Sa_lfrac_mpas ausente.
   !
-  ! Estrategia conservadora (interseção):
+  ! Estrategia conservadora (intersecao):
   !   Um ponto e tratado como OCEANO somente se:
   !     (a) MOM6 diz oceano  (is%f_ocn_mask_atm = 1)  E
   !     (b) MONAN diz oceano (lndfrac < LFRAC_OCEAN_THRESHOLD)
@@ -954,6 +1115,33 @@ contains
 
     if (.not. is%mask_loaded) return
 
+    ! Verificar existencia de Sa_lfrac_mpas via itemNameList (evita ERROR no log ESMF)
+    block
+      integer :: item_count, n_item
+      character(len=64), allocatable :: item_names(:)
+      logical :: found_it
+      found_it = .false.
+      call ESMF_StateGet(importState, itemCount=item_count, rc=localrc)
+      if (localrc == ESMF_SUCCESS .and. item_count > 0) then
+        allocate(item_names(item_count))
+        call ESMF_StateGet(importState, itemNameList=item_names, rc=localrc)
+        if (localrc == ESMF_SUCCESS) then
+          do n_item = 1, item_count
+            if (trim(item_names(n_item)) == "Sa_lfrac_mpas") then
+              found_it = .true.; exit
+            end if
+          end do
+        end if
+        deallocate(item_names)
+      end if
+      if (.not. found_it) then
+        call ESMF_LogWrite( &
+          'MED ReconcileCoastalMask: Sa_lfrac_mpas ausente; mascara MOM6 mantida', &
+          ESMF_LOGMSG_INFO)
+        return
+      end if
+    end block
+
     ! Tentar Sa_lfrac_mpas (MONAN) ? opcional
     call ESMF_StateGet(importState, itemName="Sa_lfrac_mpas", &
       field=f_lndfrac, rc=localrc)
@@ -972,7 +1160,7 @@ contains
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, file=__FILE__)) return
 
-    ! Interseção conservadora: zera mascara onde MONAN vê terra
+    ! Intersecao conservadora: zera mascara onde MONAN ve terra
     n_land_masked = 0
     n_total = (ubound(mask_atm,1)-lbound(mask_atm,1)+1) * &
               (ubound(mask_atm,2)-lbound(mask_atm,2)+1)
@@ -990,8 +1178,8 @@ contains
 
     if (n_land_masked > 0) then
       write(*,'(A,I8,A,I8,A)') &
-        'MED ReconcileCoastalMask: ', n_land_masked, ' de ', n_total, &
-        ' pontos ATM reclassificados como terra pela mascara MONAN'
+        'MED ReconcileCoastalMask: ', n_land_masked, &
+        ' de ', n_total, ' pontos ATM reclassificados como terra pela mascara MONAN'
       call ESMF_LogWrite('MED: reconciliacao costeira MOM6/MONAN aplicada', ESMF_LOGMSG_INFO)
     end if
 
@@ -1062,13 +1250,14 @@ contains
 
     type(ESMF_State)         :: importState, exportState
     type(ESMF_Clock)         :: clock
-    type(ESMF_Field)         :: atm_field, ocn_field, exp_field
+    type(ESMF_Field)         :: atm_field, ocn_field, exp_field,ocn_mask_field
     type(ESMF_Grid)          :: atm_grid!PK
     type(MED_InternalStateWrapper) :: iswrap
     type(MED_InternalState), pointer :: is
     integer :: fieldCount, i, localrc
     character(len=64), allocatable :: fieldNameList(:)
     real(ESMF_KIND_R8), pointer :: fptr(:,:)
+    integer, target  :: maskValues(1)
 
     rc = ESMF_SUCCESS
 
@@ -1109,6 +1298,7 @@ contains
       line=__LINE__, file=__FILE__)) return
 
     ! Routehandle ATM -> OCN (BILINEAR para fluxos continuos)
+    ! Criar routehandle ATM -> OCN
     ! CORRECAO 5: BILINEAR e o metodo correto para interpolacao de fluxos
     ! continuos (momentum, calor sensivel, latente, SW, LW).
     ! NEAREST_STOD era usado anteriormente mas nao conserva energia e
@@ -1124,24 +1314,47 @@ contains
       msg="MED: falha FieldRegridStore ATM->OCN", &
       line=__LINE__, file=__FILE__)) return
 
+    ! Criar routehandle OCN -> ATM
     ! Routehandle OCN -> ATM (So_t ja esta na grade OCN)
     ! Criar routehandle OCN -> ATM
     ! So_t esta agora corretamente na grade OCN (ver InitializeRealize)
+
     call ESMF_StateGet(importState, itemName="So_t", field=ocn_field, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg="MED: falha So_t", &
       line=__LINE__, file=__FILE__)) return
+    ! limpar campo destino 
+    call ESMF_FieldGet(is%f_sst_atm_tmp, farrayPtr=fptr, rc=rc)
+    fptr = 0.0_ESMF_KIND_R8
+    ! limpar campo destino 
+    call ESMF_FieldGet(is%f_sst_atm, farrayPtr=fptr, rc=rc)
+    fptr = 0.0_ESMF_KIND_R8
 
+    ! interpolar
+    maskValues(1) = 0   ! valor que indica "ignorar este ponto"
+    call ESMF_StateGet(importState, itemName="So_omask", field=ocn_mask_field, rc=rc)
+
+    ! Routehandle principal: bilinear para domínio regular
     call ESMF_FieldRegridStore( &
       srcField       = ocn_field,       &
       dstField       = is%f_sst_atm,    &
       routehandle    = is%rh_ocn2atm,   &
-      regridmethod   = ESMF_REGRIDMETHOD_BILINEAR, &
+      regridmethod   = ESMF_REGRIDMETHOD_BILINEAR, & !ESMF_REGRIDMETHOD_PATCH  ! mais suave que BILINEAR nas bordas
+      srcMaskValues  = maskValues,         &  ! <- ignora pontos onde omask=0
+      polemethod     = ESMF_POLEMETHOD_NONE,      &  ! <= media no polo
       unmappedaction = ESMF_UNMAPPEDACTION_IGNORE, &
       rc             = rc)
     if (ESMF_LogFoundError(rcToCheck=rc, &
       msg="MED: falha FieldRegridStore OCN->ATM", &
       line=__LINE__, file=__FILE__)) return
-
+    ! Routehandle auxiliar: nearest para preencher pontos não mapeados (seam/polo)
+    call ESMF_FieldRegridStore( &
+      srcField       = ocn_field,                          &
+      dstField       = is%f_sst_atm,                       &
+      routehandle    = is%rh_ocn2atm_nearest,              &
+      regridmethod   = ESMF_REGRIDMETHOD_NEAREST_STOD,     &
+      srcMaskValues  = maskValues,                         &
+      unmappedaction = ESMF_UNMAPPEDACTION_IGNORE,         &
+      rc             = rc)
     is%rh_created = .true.
 
     ! Inicializar exportState com valores fisicamente razoaveis
@@ -1192,7 +1405,7 @@ contains
     type(MED_InternalStateWrapper) :: iswrap
     type(MED_InternalState), pointer :: is
 
-    ! Campos da ATM  do MPAS (primario)
+    ! Campos da ATM do MPAS (primario)
     real(ESMF_KIND_R8), pointer :: uas_mpas(:,:)  => null()
     real(ESMF_KIND_R8), pointer :: vas_mpas(:,:)  => null()
     real(ESMF_KIND_R8), pointer :: tas_mpas(:,:)  => null()
@@ -1222,9 +1435,9 @@ contains
     real(ESMF_KIND_R8), pointer :: rain(:,:), snow(:,:)
 
     ! Campos calculados
-    real(ESMF_KIND_R8), pointer :: sst(:,:), fptr(:,:)
+    real(ESMF_KIND_R8), pointer :: sst(:,:), fptr(:,:),sst_bil(:,:),sst_nst(:,:)
 
-    ! NOVO: ponteiro para mascara oceano-continente interpolada para ATM
+    ! NOVO: Ponteiro para mascara oceano-continente interpolada para grade ATM
     real(ESMF_KIND_R8), pointer :: mask_atm(:,:) => null()
 
     real(ESMF_KIND_R8) :: wspd, qsat, sst_eff
@@ -1249,7 +1462,7 @@ contains
     nextTime = currTime + dt
 
     !==========================================================================
-    ! 1. OBTER CAMPOS DA ATM DO MPAS (PRIMARIO)
+    ! 1. TENTAR OBTER CAMPOS DA ATM DO MPAS (PRIMARIO)
     !==========================================================================
     ! use_mpas_atm vem do atributo NUOPC definido em esm.F90.
     ! Se false, pula a tentativa e vai direto ao DATM.
@@ -1303,7 +1516,7 @@ contains
       shum => shum_mpas; psl  => psl_mpas;  swdn => swdn_mpas
       lwdn => lwdn_mpas; rain => rain_mpas; snow => snow_mpas
 
-      call ESMF_LogWrite('MED: Usando MPAS/MONAN como fonte atmosferica', &
+      call ESMF_LogWrite('MED: Usando MPAS/MONAN como fonte atmosferica primaria', &
         ESMF_LOGMSG_INFO)
     end if
 
@@ -1315,9 +1528,30 @@ contains
     !==========================================================================
     if (is%rh_created) then
       call ESMF_StateGet(importState, itemName="So_t", field=field, rc=rc)
-      call ESMF_FieldRegrid(field, is%f_sst_atm, is%rh_ocn2atm, &
-        zeroregion=ESMF_REGION_TOTAL, rc=rc)
-      call ESMF_FieldGet(is%f_sst_atm, farrayPtr=sst, rc=rc)
+      ! limpar campo destino
+      call ESMF_FieldGet(is%f_sst_atm_tmp, farrayPtr=fptr, rc=rc)
+      fptr = 0.0_ESMF_KIND_R8
+      ! limpar campo destino
+      call ESMF_FieldGet(is%f_sst_atm, farrayPtr=fptr, rc=rc)
+      fptr = 0.0_ESMF_KIND_R8
+      ! interpolar
+      ! 1. Bilinear para o dominio principal
+      call ESMF_FieldRegrid(field      , &
+                           is%f_sst_atm, &
+                           is%rh_ocn2atm, &
+                           zeroregion=ESMF_REGION_EMPTY, rc=rc)
+      ! 2. Nearest apenas para pontos que ficaram zero (seam line e polo)
+      ! Usar campo temporário para nao sobrescrever o bilinear onde ele funcionou
+      call ESMF_FieldRegrid(field, &
+                            is%f_sst_atm_tmp, &
+                            is%rh_ocn2atm_nearest, &
+                            zeroregion=ESMF_REGION_EMPTY, rc=rc)
+      ! 3. Merge: onde bilinear deu zero, usar nearest
+      call ESMF_FieldGet(is%f_sst_atm    , farrayPtr=sst_bil, rc=rc)
+      call ESMF_FieldGet(is%f_sst_atm_tmp, farrayPtr=sst_nst, rc=rc)
+      where (sst_bil == 0.0_ESMF_KIND_R8) sst_bil = sst_nst
+      
+      sst=>sst_bil
     else
       ! Routehandles nao criados: usa SST padrao (ja preenchido em InitializeRealize)
       call ESMF_FieldGet(is%f_sst_atm, farrayPtr=sst, rc=rc)
@@ -1325,7 +1559,7 @@ contains
     end if
 
     !==========================================================================
-    ! 3. NOVO: Reconciliar mascara costeira MONAN x MOM6
+    ! 3b. NOVO: Reconciliar mascara costeira MONAN x MOM6
     !    Chamado a cada Advance pois lndfrac pode variar com o modelo ATM.
     !    A rotina e no-op se is%mask_loaded=.false. ou Sa_lfrac_mpas ausente.
     !==========================================================================
@@ -1338,10 +1572,25 @@ contains
     end if
 
     ! Obter ponteiro para a mascara (null se nao disponivel)
+    nullify(mask_atm)
     if (is%mask_loaded) then
       call ESMF_FieldGet(is%f_ocn_mask_atm, farrayPtr=mask_atm, rc=rc)
       if (rc /= ESMF_SUCCESS) nullify(mask_atm)
     end if
+
+    !PK !==========================================================================
+    !PK ! 3c. Diagnostico NetCDF: SST na grade ATM e na malha Voronoi MPAS
+    !PK !     Escrito a cada diag_freq passos se med_diag_sst="true"
+    !PK !==========================================================================
+    !PK is%diag_step = is%diag_step + 1
+    !PK if (is%diag_enabled .and. mod(is%diag_step, is%diag_freq) == 0) then
+    !PK   call WriteDiagSST(gcomp, is, importState, currTime, is%diag_step, rc)
+    !PK   if (rc /= ESMF_SUCCESS) then
+    !PK     call ESMF_LogWrite('MED: AVISO - WriteDiagSST falhou no passo '// &
+    !PK       trim(adjustl(transfer(is%diag_step, ' '))), ESMF_LOGMSG_WARNING)
+    !PK     rc = ESMF_SUCCESS
+    !PK   end if
+    !PK end if    
     !==========================================================================
     ! 4. CALCULAR BULK NCAR
     !
@@ -1435,7 +1684,7 @@ contains
       end do
     end do
 
-    ! --- Bandas de onda curta ---
+    ! --- Bandas de onda curta (SW) ---
     ! SW: nao precisa de SST, mas aplica mascara para evitar fluxos em terra
     call ESMF_FieldGet(is%f_swvdr_atm, farrayPtr=fptr, rc=rc)
     do j = j1, j2; do i = i1, i2
@@ -1541,7 +1790,22 @@ contains
     end do
 
     !==========================================================================
-    ! 5. REGRID E EXPORTA PARA O OCEANO
+    ! 5. DIAGNOSTICO NetCDF de SST
+    !    Escrito APOS o bulk, para que f_sst_atm ja contenha a SST real
+    !    interpolada do OCN (regrid OCN->ATM feito na secao 3).
+    !    Incrementa o contador e escreve a cada diag_freq passos.
+    !==========================================================================
+    is%diag_step = is%diag_step + 1
+    if (is%diag_enabled .and. mod(is%diag_step, is%diag_freq) == 0) then
+      call WriteDiagSST(gcomp, is, importState, currTime, is%diag_step, rc)
+      if (rc /= ESMF_SUCCESS) then
+        write(msg,'(A,I0)') 'MED: AVISO - WriteDiagSST falhou no passo ', is%diag_step
+        call ESMF_LogWrite(trim(msg), ESMF_LOGMSG_WARNING)
+        rc = ESMF_SUCCESS
+      end if
+    end if    
+    !==========================================================================
+    ! 6. REGRID E EXPORTA PARA O OCEANO
     ! CORRECAO 3: RegridOrCopy agora tem ramo else explicito: se routehandles
     !   nao estiverem criados, copia direto da grade ATM interna para a grade
     !   OCN do exportState via ESMF_FieldSMM (ou copia simples). Isso evita
@@ -1699,5 +1963,348 @@ contains
     end if
 
   end subroutine RegridOrCopy
+  !============================================================================
+  ! WriteDiagSST
+  !
+  ! Escreve dois arquivos NetCDF de diagnostico por chamada:
+  !
+  !   med_sst_atm_NNNNN.nc  : SST na grade ATM intermediaria (lat-lon regular)
+  !                            Variaveis: lon(nx,ny), lat(nx,ny), sst(nx,ny)
+  !
+  !   med_sst_voronoi_NNNNN.nc : SST exportada para a malha Voronoi do MPAS
+  !                              Obtida do exportState do MPAS (campo "So_t" ou
+  !                              campo de SST no importState do MPAS se disponivel)
+  !                              Variaveis: lon(ncells), lat(ncells), sst(ncells)
+  !
+  ! Ambos os arquivos incluem tempo como variavel escalar (segundos desde epoch).
+  ! A escrita e feita apenas no PET 0 (root) via coleta com ESMF_FieldGather.
+  !
+  ! NOTA sobre a malha Voronoi:
+  !   O ESMF nao exporta diretamente as coordenadas do Mesh. Para obte-las,
+  !   tentamos ler latCell/lonCell do campo "Sa_u10m_mpas" (que esta na grade
+  !   MPAS). Se nao disponivel, escrevemos apenas os valores sem coordenadas.
+  !
+  ! @param gcomp     componente mediador
+  ! @param is        estado interno (contem f_sst_atm e grade ATM)
+  ! @param importState estado de import (para obter SST na grade MPAS)
+  ! @param currTime  tempo atual (para timestamp no arquivo)
+  ! @param step      numero do passo (usado no nome do arquivo)
+  ! @param rc        codigo de retorno
+  !============================================================================
+  ! WriteDiagSST -> VERSAO CORRIGIDA
+  !
+  ! Escreve diagnostico de SST em NetCDF a cada diag_freq passos.
+  !   Arquivo 1: med_sst_atm_NNNNN.nc  ? SST na grade ATM 2D (lat-lon regular)
+  !   Arquivo 2: med_sst_voronoi_NNNNN.nc ? SST regridada para a malha MPAS
+  !
+  ! Correcoes em relacao a versao anterior:
+  !   - ESMF_FieldGet sem argumentos keyword invalidos (computationalLBound
+  !     nao e valido nessa forma; usar ESMF_GridGet + lbound/ubound do ptr)
+  !   - ESMF_GridGet sem minIndex/maxIndex (usar totalLBound/totalUBound)
+  !   - ESMF_VMAllReduce com array Fortran explicitamente alocado
+  !   - Sem gridToFieldMap (argumento invalido em ESMF_FieldGet)
+  !   - Sem block construct (nao suportado em gfortran antigo)
+  !============================================================================
+  ! WriteDiagSST ? VERSAO CORRIGIDA
+  !
+  ! Escreve diagnostico de SST em NetCDF a cada diag_freq passos.
+  !   Arquivo 1: med_sst_atm_NNNNN.nc  ? SST na grade ATM 2D (lat-lon regular)
+  !   Arquivo 2: med_sst_voronoi_NNNNN.nc ? SST regridada para a malha MPAS
+  !
+  ! Correcoes em relacao a versao anterior:
+  !   - ESMF_FieldGet sem argumentos keyword invalidos (computationalLBound
+  !     nao e valido nessa forma; usar ESMF_GridGet + lbound/ubound do ptr)
+  !   - ESMF_GridGet sem minIndex/maxIndex (usar totalLBound/totalUBound)
+  !   - ESMF_VMAllReduce com array Fortran explicitamente alocado
+  !   - Sem gridToFieldMap (argumento invalido em ESMF_FieldGet)
+  !   - Sem block construct (nao suportado em gfortran antigo)
+  !============================================================================
+  !============================================================================
+  ! WriteDiagSST
+  !
+  ! Escreve diagnostico de SST em dois arquivos NetCDF por chamada:
+  !
+  !   med_sst_atm_NNNNN.nc     : SST na grade ATM intermediaria (lat-lon regular)
+  !   med_sst_voronoi_NNNNN.nc : SST interpolada para a malha Voronoi MPAS
+  !
+  ! ESTRATEGIA DE I/O (compativel com ESMF 8.9.0 + ESMF_MOAB=enabled):
+  !
+  !   Arquivo ATM: usa ESMF_FieldWrite (paralelo, MPI-aware, sem gather manual).
+  !     Evita completamente ESMF_FieldGather para a grade ATM 2D.
+  !     Gera um arquivo NetCDF com variaveis lon/lat/sst com dimensoes globais.
+  !
+  !   Arquivo Voronoi: usa ESMF_FieldGather com buffer alocado em TODOS os PETs
+  !     com tamanho global obtido via ESMF_VMBroadcast do PET 0.
+  !     A escrita NetCDF e feita somente no PET 0.
+  !============================================================================
+  subroutine WriteDiagSST(gcomp, is, importState, currTime, step, rc)
+    type(ESMF_GridComp),     intent(in)    :: gcomp
+    type(MED_InternalState), intent(inout) :: is
+    type(ESMF_State),        intent(in)    :: importState
+    type(ESMF_Time),         intent(in)    :: currTime
+    integer,                 intent(in)    :: step
+    integer,                 intent(out)   :: rc
 
+    integer :: localPet, petCount, localrc
+    integer :: nx_g, ny_g
+    integer :: ncid, dimid_x, dimid_y, dimid_n
+    integer :: varid_lon, varid_lat, varid_sst, varid_time
+    integer :: yy, mm, dd, hh, mn, ss
+    real(ESMF_KIND_R8) :: time_sec
+    character(len=512) :: filename, filename_nc
+    character(len=8)   :: step_str
+
+    ! Buffers para arquivo Voronoi
+    ! Buffers globais (alocados apenas no PET 0)
+    real(ESMF_KIND_R8), allocatable :: sst2d(:,:), lon2d(:,:), lat2d(:,:)
+    real(ESMF_KIND_R8), allocatable :: sst1d(:), lon1d(:), lat1d(:)
+    real(ESMF_KIND_R8), allocatable :: elem_coords(:)
+
+    ! Campos e grids ESMF
+    type(ESMF_Field)       :: f_sst_mpas, f_sst_voronoi, f_lon_atm, f_lat_atm
+    type(ESMF_Mesh)        :: mpas_mesh
+    type(ESMF_RouteHandle) :: rh_atm2mpas
+    type(ESMF_VM)          :: vm
+    real(ESMF_KIND_R8), pointer :: cx(:,:), cy(:,:)
+    integer :: n_local, n_global_arr(1), n_out_arr(1), n_global
+    integer :: k
+
+    rc = ESMF_SUCCESS
+
+    !-------------------------------------------------------------------
+    ! Obter VM e identificar PET 0
+    !-------------------------------------------------------------------
+    call ESMF_VMGetGlobal(vm, rc=localrc)
+    if (localrc /= ESMF_SUCCESS) return
+    call ESMF_VMGet(vm, localPet=localPet, petCount=petCount, rc=localrc)
+    if (localrc /= ESMF_SUCCESS) return
+
+    !-------------------------------------------------------------------
+    ! Tempo atual
+    !-------------------------------------------------------------------
+    call ESMF_TimeGet(currTime, yy=yy, mm=mm, dd=dd, h=hh, m=mn, s=ss, rc=localrc)
+    if (localrc /= ESMF_SUCCESS) return
+    time_sec = real(ss + 60*mn + 3600*hh, ESMF_KIND_R8)
+    write(step_str, '(I5.5)') step
+
+    !=======================================================================
+    ! ARQUIVO 1: SST na grade ATM via ESMF_FieldWrite (sem gather manual)
+    ! ESMF_FieldWrite e MPI-aware: todos os PETs participam e o resultado
+    ! e um NetCDF paralelo com os dados globais. Nao requer alocacao de
+    ! buffer global nem ESMF_FieldGather.
+    !=======================================================================
+
+    ! Garantir que o diretorio existe (chamada coletiva no PET 0)
+    if (localPet == 0) &
+      call execute_command_line('mkdir -p '//trim(is%diag_dir), wait=.true.)
+    call ESMF_VMBarrier(vm, rc=localrc)
+
+    write(filename_nc, '(A,"/med_sst_atm_",A,".nc")') trim(is%diag_dir), trim(step_str)
+
+    ! ESMF_FieldWrite: escreve campo distribuido para arquivo NetCDF
+    ! O arquivo resultante tem dimensoes globais e e legivel por xarray/ncdump
+    call ESMF_FieldWrite(is%f_sst_atm, &
+      fileName       = trim(filename_nc), &
+      variableName   = "sst", &
+      status         = ESMF_FILESTATUS_REPLACE, &
+      timeslice      = 1, &
+      rc             = localrc)
+    if (localrc /= ESMF_SUCCESS) then
+      call ESMF_LogWrite('MED WriteDiagSST: ESMF_FieldWrite SST ATM falhou; skip', &
+        ESMF_LOGMSG_WARNING)
+      goto 200
+    end if
+
+    ! Escrever tambem os campos de coordenadas no mesmo arquivo
+    ! Criar campos temporarios lon/lat na grade ATM
+    f_lon_atm = ESMF_FieldCreate(is%atm_grid, typekind=ESMF_TYPEKIND_R8, &
+      staggerloc=ESMF_STAGGERLOC_CENTER, name="lon_atm_diag", rc=localrc)
+    if (localrc /= ESMF_SUCCESS) goto 200
+    f_lat_atm = ESMF_FieldCreate(is%atm_grid, typekind=ESMF_TYPEKIND_R8, &
+      staggerloc=ESMF_STAGGERLOC_CENTER, name="lat_atm_diag", rc=localrc)
+    if (localrc /= ESMF_SUCCESS) then
+      call ESMF_FieldDestroy(f_lon_atm, rc=localrc); goto 200
+    end if
+
+    call ESMF_FieldGet(f_lon_atm, farrayPtr=cx, rc=localrc)
+    if (localrc == ESMF_SUCCESS) &
+      call ESMF_GridGetCoord(is%atm_grid, coordDim=1, &
+        staggerloc=ESMF_STAGGERLOC_CENTER, farrayPtr=cx, rc=localrc)
+
+    call ESMF_FieldGet(f_lat_atm, farrayPtr=cy, rc=localrc)
+    if (localrc == ESMF_SUCCESS) &
+      call ESMF_GridGetCoord(is%atm_grid, coordDim=2, &
+        staggerloc=ESMF_STAGGERLOC_CENTER, farrayPtr=cy, rc=localrc)
+
+    call ESMF_FieldWrite(f_lon_atm, &
+      fileName     = trim(filename_nc), &
+      variableName = "lon", &
+      status       = ESMF_FILESTATUS_OLD, &
+      rc           = localrc)
+    call ESMF_FieldWrite(f_lat_atm, &
+      fileName     = trim(filename_nc), &
+      variableName = "lat", &
+      status       = ESMF_FILESTATUS_OLD, &
+      rc           = localrc)
+
+    call ESMF_FieldDestroy(f_lon_atm, rc=localrc)
+    call ESMF_FieldDestroy(f_lat_atm, rc=localrc)
+
+    call ESMF_LogWrite('MED WriteDiagSST: '//trim(filename_nc)//' escrito (ESMF_FieldWrite)', &
+      ESMF_LOGMSG_INFO)
+
+    !=======================================================================
+    ! ARQUIVO 2: SST na malha Voronoi do MPAS
+    ! Regrid bilinear ATM Grid -> MPAS Mesh + gather com buffer global
+    ! As dimensoes globais sao obtidas via ESMF_VMBroadcast do PET 0
+    !=======================================================================
+    200 continue
+
+    ! Verificar existencia de Sa_u10m_mpas via itemNameList
+    block
+      integer :: item_count, n_item
+      character(len=64), allocatable :: item_names(:)
+      logical :: found_it
+      found_it = .false.
+      call ESMF_StateGet(importState, itemCount=item_count, rc=localrc)
+      if (localrc == ESMF_SUCCESS .and. item_count > 0) then
+        allocate(item_names(item_count))
+        call ESMF_StateGet(importState, itemNameList=item_names, rc=localrc)
+        if (localrc == ESMF_SUCCESS) then
+          do n_item = 1, item_count
+            if (trim(item_names(n_item)) == "Sa_u10m_mpas") then
+              found_it = .true.; exit
+            end if
+          end do
+        end if
+        deallocate(item_names)
+      end if
+      if (.not. found_it) then
+        call ESMF_LogWrite('MED WriteDiagSST: Sa_u10m_mpas ausente; skip Voronoi', &
+          ESMF_LOGMSG_INFO)
+        goto 300
+      end if
+    end block
+
+    call ESMF_StateGet(importState, itemName="Sa_u10m_mpas", &
+      field=f_sst_mpas, rc=localrc)
+    if (localrc /= ESMF_SUCCESS) goto 300
+
+    call ESMF_FieldGet(f_sst_mpas, mesh=mpas_mesh, rc=localrc)
+    if (localrc /= ESMF_SUCCESS) goto 300
+
+    f_sst_voronoi = ESMF_FieldCreate(mesh=mpas_mesh, &
+      typekind=ESMF_TYPEKIND_R8, meshloc=ESMF_MESHLOC_ELEMENT, &
+      name="sst_voronoi_diag", rc=localrc)
+    if (localrc /= ESMF_SUCCESS) goto 300
+
+    ! interpolar
+    call ESMF_FieldRegridStore( &
+      srcField       = is%f_sst_atm,              &
+      dstField       = f_sst_voronoi,             &
+      routehandle    = rh_atm2mpas,               &
+      regridmethod   = ESMF_REGRIDMETHOD_BILINEAR, &
+      unmappedaction = ESMF_UNMAPPEDACTION_IGNORE, &
+      rc             = localrc)
+    if (localrc /= ESMF_SUCCESS) then
+      call ESMF_FieldDestroy(f_sst_voronoi, rc=localrc); goto 300
+    end if
+
+    call ESMF_FieldRegrid(is%f_sst_atm, f_sst_voronoi, rh_atm2mpas, &
+      zeroregion=ESMF_REGION_TOTAL, rc=localrc)
+    call ESMF_RouteHandleDestroy(rh_atm2mpas, nogarbage=.true., rc=localrc)
+
+    ! Obter numero total de elementos via reducao MPI
+    call ESMF_MeshGet(mpas_mesh, numOwnedElements=n_local, rc=localrc)
+    if (localrc /= ESMF_SUCCESS) n_local = 0
+    n_global_arr(1) = n_local
+    call ESMF_VMAllReduce(vm, n_global_arr, n_out_arr, 1, &
+      ESMF_REDUCE_SUM, rc=localrc)
+    n_global = merge(n_out_arr(1), 0, localrc == ESMF_SUCCESS)
+
+    if (n_global <= 0) then
+      call ESMF_FieldDestroy(f_sst_voronoi, rc=localrc); goto 300
+    end if
+
+    ! Obter tamanho global via PET 0 e broadcast para todos os PETs
+    ! ESMF_FieldGather exige que sst1d tenha tamanho global em TODOS os PETs
+    ! PET 0: ja tem n_global correto; outros PETs: recebem via broadcast
+    allocate(sst1d(n_global))    ! todos os PETs
+    if (localPet == 0) then
+      allocate(lon1d(n_global), lat1d(n_global))
+    end if
+
+    call ESMF_FieldGather(f_sst_voronoi, sst1d, rootPet=0, rc=localrc)
+    if (localrc /= ESMF_SUCCESS) then
+      deallocate(sst1d)
+      if (localPet == 0) deallocate(lon1d, lat1d)
+      call ESMF_FieldDestroy(f_sst_voronoi, rc=localrc); goto 300
+    end if
+
+    ! Coordenadas e escrita NetCDF apenas no PET 0
+    if (localPet == 0) then
+      allocate(elem_coords(2 * n_global))
+      call ESMF_MeshGet(mpas_mesh, ownedElemCoords=elem_coords, rc=localrc)
+      if (localrc == ESMF_SUCCESS) then
+        do k = 1, n_global
+          lon1d(k) = elem_coords(2*k - 1)
+          lat1d(k) = elem_coords(2*k)
+        end do
+      else
+        lon1d = 0.0_ESMF_KIND_R8; lat1d = 0.0_ESMF_KIND_R8
+      end if
+      deallocate(elem_coords)
+
+      write(filename_nc, '(A,"/med_sst_voronoi_",A,".nc")') &
+        trim(is%diag_dir), trim(step_str)
+
+      localrc = nf90_create(trim(filename_nc), NF90_CLOBBER, ncid)
+      if (localrc == NF90_NOERR) then
+        localrc = nf90_def_dim(ncid, "ncells", n_global, dimid_n)
+        localrc = nf90_put_att(ncid, NF90_GLOBAL, "title", &
+          "MED SST na malha Voronoi MPAS/MONAN")
+        localrc = nf90_put_att(ncid, NF90_GLOBAL, "step", step)
+        write(filename, '(I4.4,"-",I2.2,"-",I2.2,"T",I2.2,":",I2.2,":",I2.2)') &
+          yy, mm, dd, hh, mn, ss
+        localrc = nf90_put_att(ncid, NF90_GLOBAL, "valid_time", trim(filename))
+
+        localrc = nf90_def_var(ncid, "time", NF90_DOUBLE, varid=varid_time)
+        localrc = nf90_put_att(ncid, varid_time, "units", "seconds within day")
+        localrc = nf90_def_var(ncid, "lon", NF90_DOUBLE, dimids=(/dimid_n/), varid=varid_lon)
+        localrc = nf90_put_att(ncid, varid_lon, "units",     "degrees_east")
+        localrc = nf90_put_att(ncid, varid_lon, "long_name", "longitude celula Voronoi")
+        localrc = nf90_def_var(ncid, "lat", NF90_DOUBLE, dimids=(/dimid_n/), varid=varid_lat)
+        localrc = nf90_put_att(ncid, varid_lat, "units",     "degrees_north")
+        localrc = nf90_put_att(ncid, varid_lat, "long_name", "latitude celula Voronoi")
+        localrc = nf90_def_var(ncid, "sst", NF90_DOUBLE, dimids=(/dimid_n/), varid=varid_sst)
+        localrc = nf90_put_att(ncid, varid_sst, "units",         "K")
+        localrc = nf90_put_att(ncid, varid_sst, "long_name",     "sea surface temperature")
+        localrc = nf90_put_att(ncid, varid_sst, "standard_name", "sea_surface_temperature")
+        localrc = nf90_put_att(ncid, varid_sst, "_FillValue",    0.0_ESMF_KIND_R8)
+        localrc = nf90_put_att(ncid, varid_sst, "coordinates",   "lon lat")
+        localrc = nf90_enddef(ncid)
+
+        localrc = nf90_put_var(ncid, varid_time, time_sec)
+        localrc = nf90_put_var(ncid, varid_lon,  lon1d)
+        localrc = nf90_put_var(ncid, varid_lat,  lat1d)
+        localrc = nf90_put_var(ncid, varid_sst,  sst1d)
+        localrc = nf90_close(ncid)
+
+        write(filename_nc, '(A,"/med_sst_voronoi_",A,".nc")') &
+          trim(is%diag_dir), trim(step_str)
+        call ESMF_LogWrite('MED WriteDiagSST: '//trim(filename_nc)//' escrito', &
+          ESMF_LOGMSG_INFO)
+      end if
+
+      deallocate(lon1d, lat1d)
+    end if
+
+    deallocate(sst1d)
+    call ESMF_FieldDestroy(f_sst_voronoi, rc=localrc)
+
+    300 continue
+    rc = ESMF_SUCCESS
+
+  end subroutine WriteDiagSST
+  
 end module MED_cap_mod
