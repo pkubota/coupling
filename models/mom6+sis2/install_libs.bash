@@ -132,7 +132,7 @@ cd ${mom6_example_dir}
 # Crie o diretOrio de build e compile:
 mkdir  ${mom6_example_dir}/build
 
- TEMPLATE_MK="/p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/MOM6-examples/src/mkmf/templates/cray-gnu.mk"
+ TEMPLATE_MK="/p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.2/models/mom6+sis2/MOM6-examples/src/mkmf/templates/cray-gnu.mk"
  MKMF="$(pwd)/src/mkmf/bin/mkmf"
  LIST_PATHS="$(pwd)/src/mkmf/bin/list_paths"
 #
@@ -278,6 +278,7 @@ fi
      ../../../../src/MOM6/config_src/infra/FMS2 \
      ../../../../src/MOM6/config_src/memory/dynamic_symmetric \
      ../../../../src/MOM6/config_src/external \
+     ../../../../../../../caps/atmos/mpas_cap_config.F90 \
      ../../../../../../../caps/ocean/*.F90               \
      ../../../../src/MOM6/src/{*,*/*}
 #
