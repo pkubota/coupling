@@ -569,7 +569,8 @@ subroutine mom_export(ocean_public, ocean_grid, ocean_state, exportState, clock,
   integer                         :: iglob, jglob         ! indices
   integer                         :: n
   integer                         :: icount
-  real                            :: slp_L, slp_R, slp_C
+  real                            :: slp_L, slp_R
+  real(ESMF_KIND_R8)              :: slp_C
   real                            :: slope, u_min, u_max
   integer                         :: day, secs
   type(ESMF_TimeInterval)         :: timeStep

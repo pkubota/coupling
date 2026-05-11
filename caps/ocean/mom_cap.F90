@@ -46,7 +46,7 @@ use ESMF,  only: ESMF_Grid, ESMF_GridCreate, ESMF_GridAddCoord
 use ESMF,  only: ESMF_GridGetCoord, ESMF_GridAddItem, ESMF_GridGetItem
 use ESMF,  only: ESMF_GridComp, ESMF_GridCompSetEntryPoint, ESMF_GridCompGet
 use ESMF,  only: ESMF_LogWrite, ESMF_LogSetError
-use ESMF,  only: ESMF_LOGERR_PASSTHRU, ESMF_KIND_R8, ESMF_RC_VAL_WRONG
+use ESMF,  only: ESMF_LOGERR_PASSTHRU, ESMF_KIND_R8,ESMF_KIND_I4, ESMF_RC_VAL_WRONG
 use ESMF,  only: ESMF_GEOMTYPE_MESH, ESMF_GEOMTYPE_GRID, ESMF_SUCCESS
 use ESMF,  only: ESMF_METHOD_INITIALIZE, ESMF_MethodRemove, ESMF_State
 use ESMF,  only: ESMF_LOGMSG_INFO, ESMF_RC_ARG_BAD, ESMF_VM, ESMF_Time
@@ -756,7 +756,7 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
            Ice_ocean_boundary% p (isc:iec,jsc:jec),               &
            Ice_ocean_boundary% lrunoff (isc:iec,jsc:jec),         &
            Ice_ocean_boundary% frunoff (isc:iec,jsc:jec),         &
-           source=0.0)
+           source=0.0_ESMF_KIND_R8)
 
   ! Allocate memory for fields coming from multiple ice categories
   if (Ice_ocean_boundary%ice_ncat > 0) &
@@ -764,7 +764,7 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
              Ice_ocean_boundary% swnet_afracr(isc:iec,jsc:jec), &
              Ice_ocean_boundary% swpen_ifrac_n(isc:iec,jsc:jec,1:Ice_ocean_boundary%ice_ncat), &
              Ice_ocean_boundary% ifrac_n(isc:iec,jsc:jec,1:Ice_ocean_boundary%ice_ncat), &
-             source=0.0)
+             source=0.0_ESMF_KIND_R8)
 
   if (cesm_coupled) then
     allocate(Ice_ocean_boundary% hrain (isc:iec,jsc:jec),           &
@@ -777,7 +777,7 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
              Ice_ocean_boundary% frunoff_glc (isc:iec,jsc:jec),     &
              Ice_ocean_boundary% hrofl_glc (isc:iec,jsc:jec),       &
              Ice_ocean_boundary% hrofi_glc (isc:iec,jsc:jec),       &
-             source=0.0)
+             source=0.0_ESMF_KIND_R8)
 
     if (use_MARBL) then
       allocate(Ice_ocean_boundary% nhx_dep (isc:iec,jsc:jec),         &
@@ -789,19 +789,19 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
               Ice_ocean_boundary% seaice_bc_flux (isc:iec,jsc:jec),      &
               Ice_ocean_boundary% atm_co2_prog (isc:iec,jsc:jec),    &
               Ice_ocean_boundary% atm_co2_diag (isc:iec,jsc:jec),    &
-              source=0.0)
+              source=0.0_ESMF_KIND_R8)
     endif
   endif
 
   if (use_waves) then
     if (wave_method == "EFACTOR") then
-      allocate( Ice_ocean_boundary%lamult(isc:iec,jsc:jec), source=0.0)
+      allocate( Ice_ocean_boundary%lamult(isc:iec,jsc:jec), source=0.0_ESMF_KIND_R8)
     else if (wave_method == "SURFACE_BANDS") then
       call query_ocean_state(ocean_state, NumWaveBands=Ice_ocean_boundary%num_stk_bands)
       allocate(Ice_ocean_boundary%ustkb(isc:iec,jsc:jec,Ice_ocean_boundary%num_stk_bands), &
                Ice_ocean_boundary%vstkb(isc:iec,jsc:jec,Ice_ocean_boundary%num_stk_bands), &
                Ice_ocean_boundary%stk_wavenumbers(Ice_ocean_boundary%num_stk_bands),       &
-               source=0.0)
+               source=0.0_ESMF_KIND_R8)
       call query_ocean_state(ocean_state, WaveNumbers=Ice_ocean_boundary%stk_wavenumbers, unscale=.true.)
     else
       call MOM_error(FATAL, "Unsupported WAVE_METHOD encountered in NUOPC cap.")
@@ -1112,7 +1112,7 @@ subroutine InitializeRealize(gcomp, importState, exportState, clock, rc)
     ! in MOM6 NUOPC cap in the future, below code must be updated accordingly.)
     if (num_elim_blocks>0) then
 
-      allocate(cell_mask(ni, nj), source=0)
+      allocate(cell_mask(ni, nj), source=0_ESMF_KIND_I4)
       allocate(gindex_ocn(lsize))
       k = 0
       do j = ocean_grid%jsc, ocean_grid%jec
