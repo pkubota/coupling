@@ -49,7 +49,7 @@ use ESMF,  only: ESMF_LogWrite, ESMF_LogSetError
 use ESMF,  only: ESMF_LOGERR_PASSTHRU, ESMF_KIND_R8,ESMF_KIND_I4, ESMF_RC_VAL_WRONG
 use ESMF,  only: ESMF_GEOMTYPE_MESH, ESMF_GEOMTYPE_GRID, ESMF_SUCCESS
 use ESMF,  only: ESMF_METHOD_INITIALIZE, ESMF_MethodRemove, ESMF_State
-use ESMF,  only: ESMF_LOGMSG_INFO, ESMF_RC_ARG_BAD, ESMF_VM, ESMF_Time
+use ESMF,  only: ESMF_LOGMSG_INFO, ESMF_RC_ARG_BAD, ESMF_VM, ESMF_Time, ESMF_VMGetGlobal
 use ESMF,  only: ESMF_TimeInterval, ESMF_MAXSTR, ESMF_VMGetCurrent
 use ESMF,  only: ESMF_VMGet, ESMF_TimeGet, ESMF_TimeSet, ESMF_TimeIntervalGet, ESMF_MeshGet
 use ESMF,  only: ESMF_CALKIND_GREGORIAN
@@ -445,6 +445,7 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
   integer                                :: isc,iec,jsc,jec
   integer                                :: year=0, month=0, day=0, hour=0, minute=0, second=0
   integer                                :: mpi_comm_mom
+  !PK integer                                :: mpi_comm_global  ! B-MOM-01: MPI_COMM_WORLD para FMS I/O NetCDF4
   integer                                :: i,n
   character(len=256)                     :: stdname, shortname
   character(len=32)                      :: starttype            ! model start type
@@ -493,6 +494,18 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
 
   call ESMF_VMGet(VM, mpiCommunicator=mpi_comm_mom, localPet=localPet, rc=rc)
   if (ChkErr(rc,__LINE__,u_FILE_u)) return
+  ! B-MOM-01: FMS2 abre arquivos NetCDF4 com MPI paralelo;
+  ! no contexto NUOPC o mpi_comm_mom ? um subcomunicador que
+  ! pode nao funcionar com HDF5 paralelo do Jaci/CPTEC.
+  ! Usar MPI_COMM_WORLD (VM global) para que o FMS abra
+  ! ocean_hgrid.nc e outros arquivos NetCDF4 corretamente.
+  !PK block
+  !PK   type(ESMF_VM) :: vm_global
+  !PK   call ESMF_VMGetGlobal(vm=vm_global, rc=rc)
+  !PK   if (ChkErr(rc,__LINE__,u_FILE_u)) return
+  !PK   call ESMF_VMGet(vm_global, mpiCommunicator=mpi_comm_global, rc=rc)
+  !PK   if (ChkErr(rc,__LINE__,u_FILE_u)) return
+  !PK end block
 
   call ESMF_ClockGet(CLOCK, currTIME=MyTime, TimeStep=TINT,  RC=rc)
   if (ChkErr(rc,__LINE__,u_FILE_u)) return
@@ -560,6 +573,7 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
   call NUOPC_CompAttributeSet(gcomp, "logunit", stdout, rc=rc)
   if (chkerr(rc,__LINE__,u_FILE_u)) return
   call MOM_infra_init(mpi_comm_mom)
+  !PK call MOM_infra_init(mpi_comm_global)  ! B-MOM-01: MPI_COMM_WORLD via ESMF_VMGetGlobal
 
   ! determine the calendar
   if (cesm_coupled) then
@@ -583,7 +597,14 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
     endif
 
   else
-    call set_calendar_type (JULIAN)
+    ! B-MOM-03: usar GREGORIAN para compatibilidade com o ESMF Clock do driver
+    ! (esmApp.F90 cria o clock com defaultCalKind=ESMF_CALKIND_GREGORIAN).
+    ! Antes estava JULIAN, o que fazia o time_manager do FMS contar dias com
+    ! calendario diferente do ESMF, causando datas inconsistentes em
+    ! esmf2fms_time_t (time_utils.F90) e drift de ~13 dias para simulacoes
+    ! pos-1582. JULIAN deve ser usado apenas para configuracoes especificas
+    ! de paleoclima onde o ESMF tambem foi configurado para JULIAN.
+    call set_calendar_type (GREGORIAN)
   endif
 
   ! this ocean connector will be driven at set interval
@@ -820,6 +841,15 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
   endif
 
   !--------- import fields -------------
+  ! B-MOM-02: Campos vindos do gelo marinho (Fioi_*) e fluxos de entalpia
+  ! (Foxx_h*, Foxx_rofl, Foxx_rofi) sao especificos do acoplamento CESM/CMEPS
+  ! onde existem componentes CICE+CLM+CESM-MED. No acoplamento MONAN+MED+MOM6
+  ! esses campos NAO sao fornecidos pelo mediador. Anuncia-los aqui faz com que
+  ! o NUOPC IPDv03p6 ("Verify import fields connected") reporte
+  ! INCOMPATIBILITY massiva no log, e em alguns drivers (Verbosity=high) aborta.
+  ! Solucao: guardar todos os campos exclusivos do gelo dentro de cesm_coupled.
+  ! Os state_getimport correspondentes em mom_cap_methods ja sao tolerantes
+  ! (verificam ESMF_STATEITEM_NOTFOUND), entao a remocao e segura.
   call fld_list_add(fldsToOcn_num, fldsToOcn, "Fioi_salt"      , "will provide") ! from ice
   call fld_list_add(fldsToOcn_num, fldsToOcn, "Foxx_taux"      , "will provide")
   call fld_list_add(fldsToOcn_num, fldsToOcn, "Foxx_tauy"      , "will provide")
@@ -904,6 +934,15 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
   call fld_list_add(fldsFrOcn_num, fldsFrOcn, "So_dhdy"    , "will provide")
   call fld_list_add(fldsFrOcn_num, fldsFrOcn, "Fioo_q"     , "will provide")
   call fld_list_add(fldsFrOcn_num, fldsFrOcn, "So_bldepth" , "will provide")
+  ! B-OCN-03: Si_ifrac e Sf_zorl necessarios para o MPAS via conector OCN->MPAS.
+  ! No acoplamento MONAN+MOM6+SIS2, o MPAS importa fracao de gelo (Si_ifrac) e
+  ! rugosidade superficial (Sf_zorl) diretamente do componente OCN.
+  ! Si_ifrac vem de Ice_ocean_boundary%ice_fraction (SIS2 -> ice_ocean_boundary).
+  ! Sf_zorl e exportado como constante (cfg_zorl_default), mesmo padrao do
+  ! ocn_comp_NUOPC.F90 (DOCN). Para um calculo fisicamente correto via Charnock,
+  ! seria necessario u* do bulk -- deixado como trabalho futuro.
+  call fld_list_add(fldsFrOcn_num, fldsFrOcn, "Si_ifrac"   , "will provide")
+  call fld_list_add(fldsFrOcn_num, fldsFrOcn, "Sf_zorl"    , "will provide")
   if (cesm_coupled .and. use_MARBL) then
     call fld_list_add(fldsFrOcn_num, fldsFrOcn, "Faoo_fco2_ocn", "will provide")
   endif
@@ -1287,7 +1326,7 @@ subroutine InitializeRealize(gcomp, importState, exportState, clock, rc)
 
     allocate(mod2med_areacor(numOwnedElements), &
              med2mod_areacor(numOwnedElements), &
-             source=1._ESMF_KIND_R8)
+             source=1.0_ESMF_KIND_R8)
 
 #ifdef CESMCOUPLED
     ! Determine model areas and flux correction factors (module variables in mom_)
@@ -1739,6 +1778,7 @@ subroutine ModelAdvance(gcomp, rc)
   integer                                :: localPet
   integer                                :: localrc
   type(ESMF_VM)                          :: vm
+  integer                                :: isc,iec,jsc,jec
   integer                                :: n, i
   character(240)                         :: import_timestr, export_timestr
   character(len=128)                     :: fldname
@@ -1962,7 +2002,17 @@ subroutine ModelAdvance(gcomp, rc)
     ! Export Data
     !---------------
 
+    call get_domain_extent(ocean_public%domain, isc, iec, jsc, jec)
+
     call mom_export(ocean_public, ocean_grid, ocean_state, exportState, clock, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+
+    ! B-OCN-03: Exportar Si_ifrac (fracao de gelo) e Sf_zorl (rugosidade)
+    ! diretamente via ESMF, sem modificar a interface de mom_export.
+    ! Si_ifrac: vem de Ice_ocean_boundary%ice_fraction (SIS2 -> coupling type)
+    ! Sf_zorl : constante 0.01 m (mesmo padrao do ocn_comp_NUOPC / DOCN)
+    call export_Si_ifrac_Sf_zorl(exportState, ocean_grid, &
+         Ice_ocean_boundary%ice_fraction, isc, iec, jsc, jec, rc)
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
     if (dbug > 0) then
@@ -3338,5 +3388,78 @@ end subroutine CheckImportSkip
 !PK   call ESMF_LogWrite('MOM_cap: CheckImport desabilitado (skip)', &
 !PK     ESMF_LOGMSG_INFO, rc=rc)
 !PK end subroutine CheckImportSkip
+
+!> B-OCN-03: Exporta Si_ifrac e Sf_zorl para o exportState do MOM6.
+!! Logica de indexacao replicada de State_SetExport (mom_cap_methods.F90)
+!! para evitar erro de visibilidade de simbolo. O lbound do fptr retornado
+!! pelo ESMF pode diferir de 1 em runs com multiplos PEs; usamos
+!! lbnd1/lbnd2 para offset correto (padrao GEOMTYPE_GRID).
+subroutine export_Si_ifrac_Sf_zorl(exportState, ocean_grid, ice_fraction, &
+                                    isc, iec, jsc, jec, rc)
+  use MOM_grid,            only: ocean_grid_type
+  type(ESMF_State),      intent(inout) :: exportState
+  type(ocean_grid_type), intent(in)    :: ocean_grid
+  real(ESMF_KIND_R8),    intent(in)    :: ice_fraction(isc:iec, jsc:jec)
+  integer,               intent(in)    :: isc, iec, jsc, jec
+  integer,               intent(out)   :: rc
+
+  ! Local ? mesma logica de State_SetExport (GEOMTYPE_GRID branch)
+  type(ESMF_Field)                     :: field
+  type(ESMF_StateItem_Flag)            :: itemFlag
+  real(ESMF_KIND_R8), pointer          :: dataPtr2d(:,:)
+  integer                              :: i, j, i1, j1, ig, jg
+  integer                              :: lbnd1, lbnd2
+  character(len=*), parameter :: subname = '(MOM_cap:export_Si_ifrac_Sf_zorl)'
+
+  rc = ESMF_SUCCESS
+
+  ! -- Si_ifrac: fracao de gelo do SIS2 --
+  call ESMF_StateGet(exportState, 'Si_ifrac', itemFlag, rc=rc)
+  if (ChkErr(rc,__LINE__,u_FILE_u)) return
+  if (itemFlag /= ESMF_STATEITEM_NOTFOUND) then
+    call ESMF_StateGet(exportState, 'Si_ifrac', field=field, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+    call ESMF_FieldGet(field, farrayPtr=dataPtr2d, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+    lbnd1 = lbound(dataPtr2d, 1)
+    lbnd2 = lbound(dataPtr2d, 2)
+    do j = jsc, jec
+      j1 = j + lbnd2 - jsc
+      jg = j + ocean_grid%jsc - jsc
+      do i = isc, iec
+        i1 = i + lbnd1 - isc
+        ig = i + ocean_grid%isc - isc
+        dataPtr2d(i1, j1) = real(ice_fraction(i,j), ESMF_KIND_R8) &
+                             * ocean_grid%mask2dT(ig, jg)
+      enddo
+    enddo
+    nullify(dataPtr2d)
+    call ESMF_LogWrite(subname//' Si_ifrac exportado', ESMF_LOGMSG_INFO)
+  endif
+
+  ! -- Sf_zorl: rugosidade oceanica constante (0.01 m) --
+  call ESMF_StateGet(exportState, 'Sf_zorl', itemFlag, rc=rc)
+  if (ChkErr(rc,__LINE__,u_FILE_u)) return
+  if (itemFlag /= ESMF_STATEITEM_NOTFOUND) then
+    call ESMF_StateGet(exportState, 'Sf_zorl', field=field, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+    call ESMF_FieldGet(field, farrayPtr=dataPtr2d, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+    lbnd1 = lbound(dataPtr2d, 1)
+    lbnd2 = lbound(dataPtr2d, 2)
+    do j = jsc, jec
+      j1 = j + lbnd2 - jsc
+      jg = j + ocean_grid%jsc - jsc
+      do i = isc, iec
+        i1 = i + lbnd1 - isc
+        ig = i + ocean_grid%isc - isc
+        dataPtr2d(i1, j1) = 0.01_ESMF_KIND_R8 * ocean_grid%mask2dT(ig, jg)
+      enddo
+    enddo
+    nullify(dataPtr2d)
+    call ESMF_LogWrite(subname//' Sf_zorl exportado (0.01 m)', ESMF_LOGMSG_INFO)
+  endif
+
+end subroutine export_Si_ifrac_Sf_zorl
 
 end module MOM_cap_mod

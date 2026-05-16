@@ -93,9 +93,8 @@ subroutine mom_import(ocean_public, ocean_grid, importState, ice_ocean_boundary,
 
   rc = ESMF_SUCCESS
 
-  ! -------
-  ! import_cnt is used to skip using the import state at the first count for cesm
-  ! -------
+  ! Guarda: apenas PEs oceanicos tem o dominio e os arrays alocados.
+  if (.not. ocean_public%is_ocean_pe) return
 
   ! The following are global indices without halos
   call mpp_get_compute_domain(ocean_public%domain, isc, iec, jsc, jec)
@@ -603,7 +602,11 @@ subroutine mom_export(ocean_public, ocean_grid, ocean_state, exportState, clock,
 
   !----------------
   ! Copy from ocean_public to exportstate.
+  ! Guarda: apenas PEs oceanicos tem o dominio e os arrays alocados.
+  ! PEs nao-oceanicos retornam silenciosamente sem popular o exportState.
   !----------------
+
+  if (.not. ocean_public%is_ocean_pe) return
 
   call mpp_get_compute_domain(ocean_public%domain, isc, iec, jsc, jec)
 
