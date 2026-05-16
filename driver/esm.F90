@@ -4,8 +4,8 @@
 ! Arquitetura:                                                                 !
 !   ATM (MPAS ou DATM) -> MED -> OCN (MOM6 real ou DOCN)                      !
 !                                                                              !
-! Conectores (até 5 ativos por configuração):                                  !
-!   MPAS -> MED   : campos atmosfericos do MPAS (primário)                    !
+! Conectores (5 no total):                                                     !
+!   MPAS -> MED   : campos atmosfericos do MPAS (primario)                    !
 !   DATM -> MED   : campos atmosfericos do JRA55 (fallback)                   !
 !   OCN  -> MED   : SST/So_s/So_u/So_v para bulk formula (lag 1 step)         !
 !   MED  -> OCN   : fluxos calculados (Foxx_*, Faxa_*, etc.)                  !
@@ -19,21 +19,21 @@
 !   use_mom6_ocn  : .true.  -> MOM6+SIS2 integrado (mom_cap.F90)              !
 !                   .false. -> DOCN dados prescritos (ocn_comp_NUOPC.F90)      !
 !                                                                              !
-! Combinações válidas e casos de uso:                                          !
+! Combinacoes validas e casos de uso:                                          !
 !                                                                              !
 !   use_mpas_atm=F  use_mom6_ocn=F  ? DATM + DOCN                             !
 !     Desenvolvimento puro: sem modelos activos, tudo prescritivo.             !
 !     Valida o mediador e os conectores de forma isolada.                      !
 !                                                                              !
-!   use_mpas_atm=F  use_mom6_ocn=T  ? DATM + MOM6  (padrão atual)             !
-!     MOM6 integrado com forçamento atmosférico JRA55. Produção sem MPAS.      !
+!   use_mpas_atm=F  use_mom6_ocn=T  ? DATM + MOM6  (padrao atual)             !
+!     MOM6 integrado com forcamento atmosferico JRA55. Producao sem MPAS.      !
 !                                                                              !
 !   use_mpas_atm=T  use_mom6_ocn=F  ? MPAS + DOCN                             !
-!     MPAS com SST prescrita. Útil para ajuste de parametrização atmosférica   !
-!     sem o custo do MOM6 e sem precisar de restart oceânico.                  !
+!     MPAS com SST prescrita. Util para ajuste de parametrizacao atmosferica   !
+!     sem o custo do MOM6 e sem precisar de restart oceanico.                  !
 !                                                                              !
 !   use_mpas_atm=T  use_mom6_ocn=T  ? MPAS + MOM6  (acoplamento completo)     !
-!     Configuração alvo do GT Acoplamento MONAN. Ambos os modelos ativos,      !
+!     Configuracao alvo do GT Acoplamento MONAN. Ambos os modelos ativos,      !
 !     troca bidirecional de fluxos e SST via MED.                              !
 !                                                                              !
 ! Nota sobre OCN->MPAS:                                                        !
@@ -41,7 +41,7 @@
 !   O conector OCN->MPAS usa regrid bilinear MOM6_grid -> MPAS_mesh.           !
 !   Os campos conectados sao: So_t, So_s, So_u, So_v.                          !
 !   O MPAS_cap anunciou esses campos com "cannot provide" + "share",           !
-!   portanto o conector reusa a geometria já realizada pelo MOM_cap.            !
+!   portanto o conector reusa a geometria ja realizada pelo MOM_cap.            !
 !==============================================================================!
 module ESM
 
@@ -70,14 +70,22 @@ module ESM
   use MED_cap_mod,    only: MED_SetServices  => SetServices
 
   ! Caps oceanicos
-  ! NOTA B-60: MOM_cap_mod NAO pode aparecer em "use" no topo do modulo ESM
-  ! quando use_mom6_ocn=F. O FMS2 chama MOM_infra_init() dentro do
-  ! MOM_cap SetServices e grid_init() tenta abrir INPUT/ocean_mosaic.nc
-  ! mesmo sem NUOPC_DriverAddComp ter sido chamado para o MOM_cap.
-  ! Solucao: use encapsulado em subrotina separada chamada apenas quando
-  ! cfg_use_mom6_ocn=.true. (RegisterMOM6 abaixo).
-  ! DOCN: sempre seguro de importar (nao tem FMS/mosaic dependency).
-  !PK use MOM_cap_mod,    only: MOM6_SetServices => SetServices   ! MOM6+SIS2 integrado
+  !
+  ! NOTA HISTORICA B-60: tentamos isolar "use MOM_cap_mod" em um wrapper
+  ! local para evitar carregar a arvore FMS quando cfg_use_mom6_ocn=F.
+  ! Porem o compilador (gfortran/cray) exige que MOM_cap_mod esteja
+  ! visivel no escopo do modulo pai para que o wrapper interno compile,
+  ! mesmo com "use ... only:" tentando restringir o escopo.
+  !
+  ! Resultado pratico: o linker resolve toda a arvore de dependencias
+  ! FMS no topo do modulo ESM. O FMS sera inicializado em runtime apenas
+  ! quando NUOPC_DriverAddComp for chamado com OCN_SetServices, ou seja,
+  ! apenas quando cfg_use_mom6_ocn=.true.
+  !
+  ! Para uso DOCN puro (cfg_use_mom6_ocn=F sem dependencia FMS), seria
+  ! preciso recompilar com #ifndef sobre o "use MOM_cap_mod" ou gerar
+  ! dois executaveis distintos. Por ora, deixamos o use estatico.
+  use MOM_cap_mod,    only: OCN_SetServices  => SetServices   ! MOM6+SIS2 integrado
   use ocn_comp_NUOPC, only: DOCN_SetServices => SetServices   ! DOCN dados prescritos
 
   ! Configuracao runtime: le use_mpas_atm e use_mom6_ocn do nuopc.input
@@ -91,18 +99,19 @@ module ESM
   public :: SetServices
 
   !----------------------------------------------------------------------------
-  ! Rótulos dos componentes NUOPC
+  ! Rotulos dos componentes NUOPC
   !----------------------------------------------------------------------------
   character(len=*), parameter :: MPAS_LABEL = "MPAS"
   character(len=*), parameter :: DATM_LABEL = "DATM"
   character(len=*), parameter :: MED_LABEL  = "MED"
   character(len=*), parameter :: OCN_LABEL  = "OCN"
+  character(len=*), parameter :: DOCN_LABEL = "DOCN"
 
   !============================================================================
-  ! CHAVE 1 ? Fonte atmosférica       (runtime ? lida de nuopc.input)
-  ! CHAVE 2 ? Componente oceânico     (runtime ? lida de nuopc.input)
+  ! CHAVE 1 ? Fonte atmosferica       (runtime ? lida de nuopc.input)
+  ! CHAVE 2 ? Componente oceanico     (runtime ? lida de nuopc.input)
   !
-  ! Ambas as flags são lidas em SetModelServices via config_read() antes de
+  ! Ambas as flags sao lidas em SetModelServices via config_read() antes de
   ! qualquer registro de componente. Os defaults abaixo nunca entram em vigor
   ! durante execucao normal: config_read() sobrescreve com o valor do arquivo.
   ! Sao mantidos apenas como documentacao dos defaults do modulo config.
@@ -115,10 +124,10 @@ module ESM
   ! (sem parametros aqui ? variaveis lidas de mpas_cap_config_mod)
 
   !----------------------------------------------------------------------------
-  ! Diagnóstico de SST do mediador
+  ! Diagnostico de SST do mediador
   !   med_diag_sst  : .true. habilita escrita NetCDF de SST
-  !   med_diag_dir  : diretório de saída (criado automaticamente pelo MED_cap)
-  !   med_diag_freq : frequência em passos de acoplamento
+  !   med_diag_dir  : diretorio de saida (criado automaticamente pelo MED_cap)
+  !   med_diag_freq : frequencia em passos de acoplamento
   !                   (1 = todo passo 3h; 4 = a cada 12h; 8 = a cada 24h)
   !----------------------------------------------------------------------------
   logical,          parameter :: med_diag_sst  = .true.
@@ -227,7 +236,7 @@ contains
     end if
 
     !--------------------------------------------------------------------------
-    ! ATM: DATM (fallback) - registrado apenas quando cfg_use_mpas_atm=.false.
+    ! DATM (fallback) - registrado apenas quando use_mpas_atm=.false.
     !--------------------------------------------------------------------------
     if (.not. cfg_use_mpas_atm) then
       call NUOPC_DriverAddComp(driver,                          &
@@ -264,7 +273,7 @@ contains
       line=__LINE__, file=__FILE__)) return
 
     !--- Passa flag use_mpas_atm para o MED como atributo NUOPC ---
-    ! O MED_cap le este atributo em InitializeAdvertise e InitializeRealize.
+    ! O MED_cap le este atributo em InitializeAdvertise e InitializeRealize
     ! para decidir qual fonte atmosferica usar em MediatorAdvance.
     call NUOPC_CompAttributeAdd(medComp, attrList=(/"use_mpas_atm"/), rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
@@ -329,29 +338,57 @@ contains
     !--------------------------------------------------------------------------
     ! OCN: MOM6+SIS2 real ou DOCN dados prescritos ? chave cfg_use_mom6_ocn
     !--------------------------------------------------------------------------
+    !--------------------------------------------------------------------------
+    ! OCN: registra o componente (MOM6+SIS2 real ou DOCN dados prescritos)
+    !--------------------------------------------------------------------------
     if (cfg_use_mom6_ocn) then
-
       !------------------------------------------------------------------------
       ! MOM6+SIS2 integrado (mom_cap.F90)
-      ! B-60: registrado via subrotina wrapper RegisterMOM6 para evitar que
-      ! o "use MOM_cap_mod" no topo do modulo dispare MOM_infra_init/grid_init
-      ! quando use_mom6_ocn=F e os arquivos INPUT/ocean_mosaic.nc nao existem.
+      ! O FMS sera inicializado dentro do MOM_cap.InitializeAdvertise quando
+      ! este componente entrar em fase de init. Ver nota B-60 no topo.
       !------------------------------------------------------------------------
       call NUOPC_DriverAddComp(driver,                          &
         compLabel              = OCN_LABEL,                     &
-        compSetServicesRoutine = MOM6_SetServices_wrapper,      &
+        compSetServicesRoutine = OCN_SetServices,               &
         petList                = petList,                       &
         comp                   = ocnComp,                       &
         rc                     = rc)
       if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
         line=__LINE__, file=__FILE__)) return
 
-      call NUOPC_CompAttributeSet(ocnComp, name="Verbosity",     value="high",  rc=rc)
+      call ESMF_LogWrite('ESM: OCN = MOM6+SIS2 integrado (mom_cap.F90)', &
+        ESMF_LOGMSG_INFO)
+    else
+      !------------------------------------------------------------------------
+      ! DOCN dados prescritos (ocn_comp_NUOPC.F90)
+      !------------------------------------------------------------------------
+      call NUOPC_DriverAddComp(driver,                          &
+        compLabel              = OCN_LABEL,                     &
+        compSetServicesRoutine = DOCN_SetServices,              &
+        petList                = petList,                       &
+        comp                   = ocnComp,                       &
+        rc                     = rc)
       if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
         line=__LINE__, file=__FILE__)) return
-      call NUOPC_CompAttributeSet(ocnComp, name="DumpFields",    value="false", rc=rc)
-      if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
-        line=__LINE__, file=__FILE__)) return
+
+      call ESMF_LogWrite('ESM: OCN = DOCN dados prescritos (ocn_comp_NUOPC.F90)', &
+        ESMF_LOGMSG_INFO)
+    end if
+
+    !--------------------------------------------------------------------------
+    ! Atributos comuns do OCN (validos para MOM6 e DOCN)
+    !--------------------------------------------------------------------------
+    call NUOPC_CompAttributeSet(ocnComp, name="Verbosity",     value="high",  rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, file=__FILE__)) return
+    call NUOPC_CompAttributeSet(ocnComp, name="DumpFields",    value="false", rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, file=__FILE__)) return
+
+    !--------------------------------------------------------------------------
+    ! Atributos especificos do MOM6 (so faz sentido com mom_cap.F90)
+    !--------------------------------------------------------------------------
+    if (cfg_use_mom6_ocn) then
       call NUOPC_CompAttributeSet(ocnComp, name="ProfileMemory", value="false", rc=rc)
       if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
         line=__LINE__, file=__FILE__)) return
@@ -360,6 +397,25 @@ contains
       if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
         line=__LINE__, file=__FILE__)) return
       call NUOPC_CompAttributeSet(ocnComp, name="restart_n", value="0", rc=rc)
+      if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+        line=__LINE__, file=__FILE__)) return
+
+      ! B-MOM-04: O mom_cap usa este atributo para decidir runtype:
+      !   "startup"  -> runtype="initial" (cold start, le input.nml para
+      !                 obter dirs%input_filename - primeira letra define o tipo)
+      !   "continue" -> runtype="continue" (restart de simulacao anterior)
+      !   "branch"   -> runtype="continue" (branch run)
+      ! Sem este atributo, o mom_cap entra em runtype="" e nao seta restartfiles,
+      ! o que pode levar a comportamento indefinido em ocean_model_init quando
+      ! input_restart_file="". Default = "startup" para cold start;
+      ! pode ser sobrescrito por restart_n!=0 ou logica adicional aqui.
+      call NUOPC_CompAttributeSet(ocnComp, name="start_type", value="startup", rc=rc)
+      if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+        line=__LINE__, file=__FILE__)) return
+
+      ! B-MOM-05: forcar GREGORIAN explicito (mom_cap so respeita "calendar"
+      ! quando cesm_coupled=T, mas setar nao faz mal e documenta a intencao).
+      call NUOPC_CompAttributeSet(ocnComp, name="calendar", value="GREGORIAN", rc=rc)
       if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
         line=__LINE__, file=__FILE__)) return
 
@@ -390,34 +446,6 @@ contains
         value=trim(stop_tod_str), rc=rc)
       if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
         line=__LINE__, file=__FILE__)) return
-
-      call ESMF_LogWrite('ESM: OCN = MOM6+SIS2 integrado (mom_cap.F90)', &
-        ESMF_LOGMSG_INFO)
-
-    else
-
-      !------------------------------------------------------------------------
-      ! DOCN dados prescritos (ocn_comp_NUOPC.F90)
-      !------------------------------------------------------------------------
-      call NUOPC_DriverAddComp(driver,                          &
-        compLabel              = OCN_LABEL,                     &
-        compSetServicesRoutine = DOCN_SetServices,              &
-        petList                = petList,                       &
-        comp                   = ocnComp,                       &
-        rc                     = rc)
-      if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
-        line=__LINE__, file=__FILE__)) return
-
-      call NUOPC_CompAttributeSet(ocnComp, name="Verbosity",  value="high",  rc=rc)
-      if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
-        line=__LINE__, file=__FILE__)) return
-      call NUOPC_CompAttributeSet(ocnComp, name="DumpFields", value="false", rc=rc)
-      if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
-        line=__LINE__, file=__FILE__)) return
-
-      call ESMF_LogWrite('ESM: OCN = DOCN dados prescritos (ocn_comp_NUOPC.F90)', &
-        ESMF_LOGMSG_INFO)
-
     end if
 
     !--------------------------------------------------------------------------
@@ -503,28 +531,28 @@ contains
   ! SetRunSequence
   !
   !  Sequencia por passo de acoplamento (3h = 10800 s):
-  ! A RunSequence é idêntica para MOM6 e DOCN ? o rótulo "OCN" é o mesmo em
-  ! ambos os casos. A diferença está apenas em quais campos são de fato
-  ! transferidos pelos conectores (determinado pelos anúncios dos caps).
+  ! A RunSequence eh identica para MOM6 e DOCN ? o rotulo "OCN" eh o mesmo em
+  ! ambos os casos. A diferenca esta apenas em quais campos sao de fato
+  ! transferidos pelos conectores (determinado pelos anuncios dos caps).
   !
-  ! Sequência por passo de acoplamento (dt_coupling = 10800 s = 3 h):
+  ! Sequencia por passo de acoplamento (dt_coupling = 10800 s = 3 h):
   !
   !  Modo MPAS + OCN (qualquer):
   !    OCN ? MPAS  : SST lag t-1 ? sfc_input (antes do run MPAS)
-  !    MPAS        : dinâmica + física com SST atualizado
-  !    MPAS ? MED  : campos atmosféricos da malha Voronoi
+  !    MPAS        : dinamica + fisica com SST atualizado
+  !    MPAS ? MED  : campos atmosfericos da malha Voronoi
   !    OCN  ? MED  : SST/correntes ? mediador para bulk
   !    MED         : calcula fluxos bulk NCAR
   !    MED  ? OCN  : fluxos ? OCN (integrado pelo MOM6 ou ignorados pelo DOCN)
-  !    OCN         : integra MOM6 / avança DOCN (lê próximo snapshot)
+  !    OCN         : integra MOM6 / avanca DOCN (le proximo snapshot)
   !
   !  Modo DATM + OCN (qualquer):
-  !    DATM        : lê JRA55 e exporta campos brutos
+  !    DATM        : le JRA55 e exporta campos brutos
   !    DATM ? MED  : campos JRA55 ? mediador
   !    OCN  ? MED  : SST/correntes ? mediador para bulk
   !    MED         : calcula fluxos bulk NCAR
   !    MED  ? OCN  : fluxos ? OCN
-  !    OCN         : integra MOM6 / avança DOCN
+  !    OCN         : integra MOM6 / avanca DOCN
   !
   !  Nota sobre a ordem OCN->MPAS antes de MPAS run:
   !    O SST transferido e do passo t-1 (lag de 1 intervalo de acoplamento),
@@ -549,32 +577,60 @@ contains
     dt_str = dt_str // repeat(' ', 18 - len_trim(dt_str))
 
     if (cfg_use_mpas_atm) then
-      !------------------------------------------------------------------------
-      ! Modo MPAS-ATM (use_mpas_atm = .true.)
-      !
-      !  1. OCN -> MPAS : SST lag t-1 -> pool sfc_input (antes do run MPAS)
-      !  2. MPAS        : dinâmica + fisica com SST atualizado
-      !  3. MPAS -> MED : campos atmosfericos da malha Voronoi
-      !  4. OCN  -> MED : SST -> mediador para bulk
-      !  5. MED         : calcula fluxos bulk NCAR (usa campos MPAS)
-      !  6. MED  -> OCN : fluxos -> MOM6
-      !  7. OCN         : integra MOM6
-      !------------------------------------------------------------------------
-      runSeqFF = NUOPC_FreeFormatCreate(stringList=(/ &
-        dt_str               ,  &
-        "  OCN -> MPAS     ",  &
-        "  MPAS            ",  &
-        "  MPAS -> MED     ",  &
-        "  OCN  -> MED     ",  &
-        "  MED             ",  &
-        "  MED  -> OCN     ",  &
-        "  OCN             ",  &
-        "@                 " /), rc=rc)
-      if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
-        line=__LINE__, file=__FILE__)) return
+       if (cfg_use_mom6_ocn) then
+         !------------------------------------------------------------------------
+         ! Modo MPAS-ATM + MOM6 (use_mpas_atm=T, use_mom6_ocn=T)
+         !
+         !  1. OCN -> MPAS : SST lag t-1 -> pool sfc_input (antes do run MPAS)
+         !  2. MPAS        : dinamica + fisica com SST atualizado
+         !  3. MPAS -> MED : campos atmosfericos da malha Voronoi
+         !  4. OCN  -> MED : SST -> mediador para bulk
+         !  5. MED         : calcula fluxos bulk NCAR (usa campos MPAS)
+         !  6. MED  -> OCN : fluxos -> MOM6
+         !  7. OCN         : integra MOM6
+         !------------------------------------------------------------------------
+         runSeqFF = NUOPC_FreeFormatCreate(stringList=(/ &
+           dt_str               ,  &
+           "  OCN -> MPAS     ",  &
+           "  MPAS            ",  &
+           "  MPAS -> MED     ",  &
+           "  OCN  -> MED     ",  &
+           "  MED             ",  &
+           "  MED  -> OCN     ",  &
+           "  OCN             ",  &
+           "@                 " /), rc=rc)
+         if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+           line=__LINE__, file=__FILE__)) return
+         call ESMF_LogWrite('ESM: RunSequence modo MPAS-ATM + MOM6', &
+           ESMF_LOGMSG_INFO)
 
-      call ESMF_LogWrite('ESM: RunSequence modo MPAS-ATM + OCN ('// &
-        merge('MOM6','DOCN', cfg_use_mom6_ocn)//')', ESMF_LOGMSG_INFO)
+       else
+         !------------------------------------------------------------------------
+         ! Modo MPAS-ATM + DOCN (use_mpas_atm=T, use_mom6_ocn=F)
+         !
+         !  1. OCN -> MPAS : SST lag t-1 (do DOCN) -> sfc_input
+         !  2. MPAS        : dinamica + fisica com SST atualizado
+         !  3. MPAS -> MED : campos atmosfericos da malha Voronoi
+         !  4. OCN  -> MED : SST -> mediador (fluxos calculados mas DOCN ignora)
+         !  5. MED         : calcula fluxos bulk NCAR
+         !  6. MED  -> OCN : fluxos -> DOCN (ignorados, apenas para topologia)
+         !  7. OCN         : DOCN avanca para proximo snapshot
+         !------------------------------------------------------------------------
+         runSeqFF = NUOPC_FreeFormatCreate(stringList=(/ &
+           dt_str               ,  &
+           "  OCN -> MPAS     ",  &
+           "  MPAS            ",  &
+           "  MPAS -> MED     ",  &
+           "  OCN  -> MED     ",  &
+           "  MED             ",  &
+           "  MED  -> OCN     ",  &
+           "  OCN             ",  &
+           "@                 " /), rc=rc)
+         if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+           line=__LINE__, file=__FILE__)) return
+         call ESMF_LogWrite('ESM: RunSequence modo MPAS-ATM + DOCN', &
+           ESMF_LOGMSG_INFO)
+       end if
 
     else
       !------------------------------------------------------------------------
@@ -615,41 +671,20 @@ contains
   end subroutine SetRunSequence
 
   !============================================================================
-  ! MOM6_SetServices_wrapper ? B-60: encapsula o use MOM_cap_mod
-  !
-  ! O FMS2 inicializa o framework (MOM_infra_init, grid_init) dentro do
-  ! SetServices do MOM_cap, abrindo INPUT/ocean_mosaic.nc imediatamente.
-  ! Se esse use estivesse no topo do modulo ESM, o linker resolveria os
-  ! simbolos e o FMS seria ativado mesmo com use_mom6_ocn=F.
-  !
-  ! Ao colocar o "use MOM_cap_mod" aqui ? dentro de uma subrotina chamada
-  ! APENAS quando cfg_use_mom6_ocn=.true. ? o FMS so e inicializado quando
-  ! o MOM6 esta realmente sendo usado.
-  !
-  ! Assinatura NUOPC obrigatoria: sem intent nos argumentos ESMF.
-  !============================================================================
-  subroutine MOM6_SetServices_wrapper(gcomp, rc)
-    use MOM_cap_mod, only: MOM6_SS => SetServices
-    type(ESMF_GridComp)  :: gcomp
-    integer, intent(out) :: rc
-    call MOM6_SS(gcomp, rc)
-  end subroutine MOM6_SetServices_wrapper
-
-  !============================================================================
-  ! LogModoAtivo ? escreve no log ESMF a configuração completa ativa
+  ! LogModoAtivo ? escreve no log ESMF a configuracao completa ativa
   !============================================================================
   subroutine LogModoAtivo()
 
     character(len=128) :: msg
 
-    ! Linha de resumo compacta para grep rápido nos logs
+    ! Linha de resumo compacta para grep rapido nos logs
     write(msg, '(A,L1,A,L1,A)') &
       'ESM: use_mpas_atm=', cfg_use_mpas_atm, &
       '  use_mom6_ocn=',    cfg_use_mom6_ocn, &
       ' ??????????????????????????'
     call ESMF_LogWrite(trim(msg), ESMF_LOGMSG_INFO)
 
-    ! Descrição expandida
+    ! Descricao expandida
     if (cfg_use_mpas_atm .and. cfg_use_mom6_ocn) then
       call ESMF_LogWrite( &
         'ESM: CONFIGURACAO = MPAS-ATM + MOM6+SIS2 (acoplamento completo)', &
