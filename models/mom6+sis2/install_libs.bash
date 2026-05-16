@@ -26,9 +26,9 @@
 module unload PrgEnv-cray/8.6.0
 module load   PrgEnv-gnu/8.6.0
 #   module load cray-netcdf        # NetCDF C + Fortran
-module load cray-netcdf-hdf5parallel/4.9.0.15
+#module load cray-netcdf-hdf5parallel/4.9.0.15
 #   module load cray-hdf5          # HDF5
-module load cray-hdf5-parallel/1.14.3.3
+#module load cray-hdf5-parallel/1.14.3.3
 #   module load cray-mpich         # MPI
 module load cray-mpich/8.1.31
 #   module load cray-pio           # Parallel I/O (necessario para MOM6)
@@ -38,10 +38,8 @@ module load autoconf/2.72
 module load libfabric/1.22.0
 module load cray-pals/1.6.1
 module list
-export PATH=/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/esmf/bin:$PATH
-export LD_LIBRARY_PATH=/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/libssl/lib:\
-/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/esmf/lib:\
-/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/lib:$LD_LIBRARY_PATH
+export  PATH=/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/esmf/bin:/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/bin:$PATH
+export LD_LIBRARY_PATH=/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/libssl/lib:/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/esmf/lib/libg/Linux:/p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/lib:$LD_LIBRARY_PATH
 #
 
 # Verifique os modulos disponiveis com:
@@ -130,9 +128,10 @@ export NetCDF_ROOT=$(nc-config --prefix)
 #
 cd ${mom6_example_dir}
 # Crie o diretOrio de build e compile:
+rm -rf  ${mom6_example_dir}/build
 mkdir  ${mom6_example_dir}/build
 
- TEMPLATE_MK="/p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.2/models/mom6+sis2/MOM6-examples/src/mkmf/templates/cray-gnu.mk"
+ TEMPLATE_MK="/p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/MOM6-examples/src/mkmf/templates/cray-gnu.mk"
  MKMF="$(pwd)/src/mkmf/bin/mkmf"
  LIST_PATHS="$(pwd)/src/mkmf/bin/list_paths"
 #
@@ -314,3 +313,11 @@ cp build/gnu/shared/repro/libfms.a    ../lib/fms/
 cp build/gnu/nuopc_cap/repro/*.mod       ../mod/nuopc/ 
 cp build/gnu/ice_ocean_SIS2/repro/*.mod  ../mod/mom6/ 
 cp build/gnu/shared/repro/*.mod          ../mod/fms/ 
+
+cp build/gnu/nuopc_cap/repro/*.inc       ../include/nuopc/ 
+cp build/gnu/ice_ocean_SIS2/repro/*.inc  ../include/mom6/ 
+cp build/gnu/shared/repro/*.inc          ../include/fms/ 
+
+cp build/gnu/nuopc_cap/repro/*.h       ../include/nuopc/ 
+cp build/gnu/ice_ocean_SIS2/repro/*.h  ../include/mom6/ 
+cp build/gnu/shared/repro/*.h          ../include/fms/ 
