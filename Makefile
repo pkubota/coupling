@@ -1,16 +1,17 @@
 # ==============================================================================
 # Makefile - Acoplamento MONAN-A 2.0 / NUOPC-ESMF 8.9.1
-# Versao : 9.0 - Merge Makefile_original + Makefile_massaru v8.2
+# Versao : 9.1 - Correcao de link: simbolos MPAS undefined (mpas_log, mpas_pool, etc.)
 #
 # Historico:
 #   v8.0 - src/ em arvore: caps/atmos/, caps/ocean/, mediator/, driver/, main/
 #   v8.1 - DATOCN_cap.F90 -> DOCN_cap.F90
 #   v8.2 - B-51/B-52/B-53: escalabilidade validada 4/128/512 PETs
 #   v9.0 - Merge: caminhos hardcoded do original + estrutura robusta do draft
-#          Adicionado: ocn_comp_NUOPC.F90, DATM_cap.F90
-#          Adicionado: mom_cap_methods.F90, mom_cap_time.F90, time_utils.F90
-#          Corrigido:  grafo de dependencias completo (5 camadas + OCN interna)
-#          MOM6/FMS/MOAB/PNetCDF/NetCDF: caminhos do original (Jaci/INPE)
+#   v9.1 - FIX LINK: 3 bugs corrigidos:
+#          Bug 1: MPAS_LIBDIR definido como flags -L (devia ser caminho puro)
+#          Bug 2: MPAS_OBJS com wildcard duplo $(MPAS_LIBDIR)/lib/... (incorreto)
+#          Bug 3: LDFLAGS_ALL sem -lframework -ldycore -lphys -lops -lsmiol
+#                 -> todos os simbolos __mpas_*_MOD_* ficavam undefined
 #
 # Prerequisitos (carregar ANTES de make):
 #   module purge
@@ -34,8 +35,8 @@
 #/p/projetos/monan_adm/daniel.massaru/Acopladores/NUOPC-MPAS-Integrado-V4.2
 #==============================================================================#
 ESMFMKFILE := /p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/esmf/lib/libg/Linux/esmf.mk
-MPAS_DIR := /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.2/models/monan
-MPAS_DIR_LOCAL:= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.2
+MPAS_DIR := /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/monan
+MPAS_DIR_LOCAL:= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3
 # ------------------------------------------------------------------------------
 # Validacao de variaveis obrigatorias de ambiente
 # (devem vir de setenv-monan-gnu.bash)
@@ -57,19 +58,19 @@ endif
 # ------------------------------------------------------------------------------
 
 # -- MOM6 + SIS2 ---------------------------------------------------------------
-MOM6_LIBDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/lib/mom6
-MOM6_INCDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/include/mom6
-MOM6_MODDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/mod/mom6
+MOM6_LIBDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/lib/mom6
+MOM6_INCDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/include/mom6
+MOM6_MODDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/mod/mom6
 
 # -- FMS -----------------------------------------------------------------------
-FMS_LIBDIR  ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/lib/fms
-FMS_INCDIR  ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/include/fms
-FMS_MODDIR  ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/mod/fms
+FMS_LIBDIR  ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/lib/fms
+FMS_INCDIR  ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/include/fms
+FMS_MODDIR  ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/mod/fms
 
 # -- NUOPC cap MOM6 ------------------------------------------------------------
-NUOPC_LIBDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/lib/nuopc
-NUOPC_INCDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/include/nuopc
-NUOPC_MODDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.0/models/mom6+sis2/mod/nuopc
+NUOPC_LIBDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/lib/nuopc
+NUOPC_INCDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/include/nuopc
+NUOPC_MODDIR ?= /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/mom6+sis2/mod/nuopc
 
 # -- ESMF (caminhos explicitos alem do esmf.mk) --------------------------------
 ESMF_DIR    ?= /p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/esmf
@@ -87,6 +88,11 @@ MOAB_LIB    := -L$(MOAB_DIR)/lib -lMOAB
 PNETCDF_DIR ?= /p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/pnetcdf
 PNETCDF_INC := -I$(PNETCDF_DIR)/include
 PNETCDF_LIB := -L$(PNETCDF_DIR)/lib -lpnetcdf
+
+# -- HDF5 privado (mesma versao com que libfms.a foi compilado) ----------------
+# B-ABI-02: em runtime o Cray disponibiliza cray-hdf5-parallel que tem versao
+# diferente. Usar RPATH para fixar a versao correta no executavel.
+HDF5_DIR    ?= /p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/hdf5
 
 # -- NetCDF (C + Fortran) ------------------------------------------------------
 NETCDF_DIR  ?= /p/projetos/monan_adm/paulo.kubota/home/lib/lib_gnucray/netcdf
@@ -129,62 +135,89 @@ TARGET := $(BINDIR)/esmApp
 # ------------------------------------------------------------------------------
 # Compilador (herdado do esmf.mk)
 # ------------------------------------------------------------------------------
-FC := $(ESMF_F90COMPILER)
+FC := $(ESMF_F90COMPILER)  -g -fcheck=all
 
 # ------------------------------------------------------------------------------
 # Includes do MONAN-A 2.0
-# MPAS_DIR := /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.2/models/monan
+# MPAS_DIR := /p/projetos/monan_atm/paulo.kubota/coupler/coupling_0.0.3/models/monan
 # ------------------------------------------------------------------------------
 MPAS_MOD_DIR ?= $(MPAS_DIR)/include/framework
 
 MPAS_INCLUDE := -I$(MPAS_MOD_DIR)                    \
                 -I$(MPAS_DIR)/include/framework           \
                 -I$(MPAS_DIR)/include/core_atmosphere     \
+                -I$(MPAS_DIR)/include/core_atmosphere/physics     \
                 -I$(MPAS_DIR)/include/operators           \
                 -I$(MPAS_DIR)/include/external/SMIOL
 
-MPAS_LIBDIR :=  -L$(MPAS_DIR)/lib/framework           \
-                -L$(MPAS_DIR)/lib/core_atmosphere     \
-                -L$(MPAS_DIR)/lib/operators           \
-                -L$(MPAS_DIR)/lib/external/SMIOL
+MPAS_LIBDIR :=  $(MPAS_DIR)/lib
 
 # ------------------------------------------------------------------------------
 # F90FLAGS
 # Combina: flags do esmf.mk + MPAS + MOM6/FMS/NUOPC mods + moddir proprio
-# FCFLAGS := $(ESMF_F90COMPILEOPTS) \
-#            $(ESMF_F90COMPILEPATHS) \
-# 	   -O2 \
-# 	   -fPIC \
-# 	   -m64 \
-# 	   -ffree-line-length-none \
-#          $(ESMF_F90COMPILEFREECPP) \
-# 	   $(ESMF_F90COMPILECPPFLAGS)
+#
+# B-ABI-01: HÁ DOIS CONJUNTOS DE FLAGS NECESSÁRIOS POR INCOMPATIBILIDADE ABI:
+#
+#   1. F90FLAGS_MPAS: COM -fdefault-real-8 (e -fdefault-double-8)
+#      Usado para arquivos do MPAS e que dependem de mod do MPAS.
+#      MPAS é compilado com -fdefault-real-8 (default GFortran MPAS),
+#      então qualquer arquivo que use mod do MPAS precisa da mesma flag.
+#
+#   2. F90FLAGS_FMS: SEM -fdefault-real-8 (e SEM -fdefault-double-8)
+#      Usado para arquivos do cap MOM6/FMS.
+#      FMS e MOM6 foram compilados via cray-gnu.mk SEM essas flags
+#      (default GFDL). Compilar mom_cap.F90 COM -fdefault-real-8 causa
+#      layout de struct (FmsNetcdfDomainFile_t) diferente entre caller
+#      e biblioteca, manifestando-se como SIGSEGV em get_variable_num_dimensions
+#      durante set_grid_metrics_from_mosaic.
+#
+#   3. Arquivos intermediários (esm.F90, MED_cap.F90, DATM_cap.F90,
+#      ocn_comp_NUOPC.F90, esmApp.F90, mpas_cap_utils.F90, mpas_cap_config.F90):
+#      compilar SEM -fdefault-real-8. Esses arquivos tocam ambos os mundos
+#      mas declaram tipos com kind explícito (ESMF_KIND_R8, ESMF_KIND_R4) e
+#      não fazem uso direto do "real" default. Compilar sem a flag mantém
+#      compatibilidade com FMS e força declarações explícitas.
 # ------------------------------------------------------------------------------
-F90FLAGS := $(ESMF_F90COMPILEOPTS)          \
-            $(ESMF_F90COMPILEPATHS)         \
-            $(ESMF_F90COMPILEFREECPP)       \
-            $(ESMF_F90COMPILECPPFLAGS)      \
-            $(MPAS_INCLUDE)                 \
-            $(ESMF_INC)                     \
-            $(MOAB_INC)                     \
-            $(PNETCDF_INC)                  \
-            $(NETCDF_INC)                   \
-            -I$(MOM6_MODDIR)                \
-            -I$(FMS_MODDIR)                 \
-            -I$(NUOPC_MODDIR)               \
-            -I$(MODDIR)                     \
-            -J$(MODDIR)                     \
-            -ffree-form                     \
-            -ffree-line-length-none         \
-            -fopenmp                        \
-            -fallow-argument-mismatch       \
-            -ffpe-summary=none              \
-            -O2 -g                          \
-            -fPIC                           \
-            -m64                            \
-            -Wall                           \
-            -Wno-unused-dummy-argument      \
-            -Wno-unused-variable
+
+F90FLAGS_COMMON := $(ESMF_F90COMPILEOPTS)       \
+                   $(ESMF_F90COMPILEPATHS)      \
+                   $(ESMF_F90COMPILEFREECPP)    \
+                   $(ESMF_F90COMPILECPPFLAGS)   \
+                   $(MPAS_INCLUDE)              \
+                   $(ESMF_INC)                  \
+                   $(MOAB_INC)                  \
+                   $(PNETCDF_INC)               \
+                   $(NETCDF_INC)                \
+                   -I$(MOM6_MODDIR)             \
+                   -I$(FMS_MODDIR)              \
+                   -I$(NUOPC_MODDIR)            \
+                   -I$(MODDIR)                  \
+                   -J$(MODDIR)                  \
+                   -fconvert=big-endian         \
+                   -ffree-form                  \
+                   -ffree-line-length-none      \
+                   -O2 -fPIC -m64
+
+# Para arquivos que dependem de mods do MPAS (MPAS é compilado com -fdefault-real-8)
+F90FLAGS_MPAS  := $(F90FLAGS_COMMON)            \
+                  -fdefault-real-8              \
+                  -fdefault-double-8
+
+# Para arquivos do cap MOM6/FMS (FMS foi compilado sem -fdefault-real-8)
+F90FLAGS_FMS   := $(F90FLAGS_COMMON)
+
+# Alias antigo para retrocompatibilidade (era F90FLAGS sem distinção).
+# Mantemos apontando para a variante MPAS por enquanto, mas o IDEAL é que
+# nenhuma regra use $(F90FLAGS) ? sempre escolher F90FLAGS_MPAS ou F90FLAGS_FMS.
+F90FLAGS := $(F90FLAGS_MPAS)
+#            -fallow-argument-mismatch       \
+#            -ffpe-summary=none              \
+#            -O2 -g                          \
+#            -fPIC                           \
+#            -m64                            \
+#            -Wall                           \
+#            -Wno-unused-dummy-argument      \
+#            -Wno-unused-variable
 
 # ------------------------------------------------------------------------------
 # Bibliotecas MOM6: objetos precompilados (exclui mains proprios do MOM6)
@@ -195,11 +228,28 @@ MOM6_OBJS := $(filter-out                  \
     $(MOM6_LIBDIR)/MOM_driver.o,           \
     $(wildcard $(MOM6_LIBDIR)/*.o))
 
-MPAS_OBJS := $(wildcard                    \
-    $(MPAS_LIBDIR)/lib/framework/*.o       \
-    $(MPAS_LIBDIR)/lib/core_atmosphere/*.o \
-    $(MPAS_LIBDIR)/lib/operators/*.o       \
-    $(MPAS_LIBDIR)/lib/external/SMIOL/*.o)
+# Objetos precompilados do MONAN-A (mesmo mecanismo do MOM6_OBJS).
+# Se o MONAN for instalado como .a (static libs), use MPAS_LIBS abaixo.
+# Se for como .o individuais em lib/framework/, lib/core_atmosphere/ etc.,
+# o wildcard captura tudo automaticamente.
+MPAS_OBJS := $(wildcard                                  \
+    $(MPAS_LIBDIR)/framework/*.o                         \
+    $(MPAS_LIBDIR)/core_atmosphere/*.o                   \
+    $(MPAS_LIBDIR)/core_atmosphere/physics/*.o           \
+    $(MPAS_LIBDIR)/operators/*.o                         \
+    $(MPAS_LIBDIR)/external/SMIOL/*.o)
+
+# Fallback: se o MONAN for instalado como bibliotecas estaticas (.a),
+# MPAS_OBJS ficara vazio e MPAS_LIBS sera usado no lugar.
+# Descomentar se necessario:
+# MPAS_LIBS := -L$(MPAS_LIBDIR)/framework          \
+#              -L$(MPAS_LIBDIR)/core_atmosphere     \
+#              -L$(MPAS_LIBDIR)/operators           \
+#              -L$(MPAS_LIBDIR)/external/SMIOL      \
+#              -Wl,--start-group                    \
+#              -lframework -ldycore -lphys        \
+#              -lops -lsmiolf -lsmiol             \
+#              -Wl,--end-group
 # ------------------------------------------------------------------------------
 # LDFLAGS_ALL - ordem de link critica:
 #   1. objetos proprios (ALL_OBJS, passados no link)
@@ -211,8 +261,22 @@ MPAS_OBJS := $(wildcard                    \
 SYS_LIBS  := -lz -ldl -lm
 OMP_LIBS  := -lgomp
 
+# Bibliotecas estaticas do MONAN-A (usadas quando MPAS_OBJS estiver vazio
+# ou para garantir resolucao de simbolos nao capturados pelos .o).
+# Ordem critica: framework antes de dycore/phys (dycore depende de framework).
+MPAS_LINK := -L$(MPAS_LIBDIR)/framework                 \
+              -L$(MPAS_LIBDIR)/core_atmosphere           \
+              -L$(MPAS_LIBDIR)/core_atmosphere/physics   \
+              -L$(MPAS_LIBDIR)/operators                 \
+              -L$(MPAS_LIBDIR)/external/SMIOL            \
+              -Wl,--start-group                          \
+                -lframework -ldycore -lphys              \
+                -lops -lsmiolf -lsmiol                   \
+              -Wl,--end-group
+
 LDFLAGS_ALL := $(MOM6_OBJS)                    \
                $(MPAS_OBJS)                     \
+               $(MPAS_LINK)                     \
                -L$(NUOPC_LIBDIR) -lmom6_nuopc  \
                -L$(FMS_LIBDIR)   -lfms         \
                $(ESMF_LIB)                     \
@@ -225,7 +289,11 @@ LDFLAGS_ALL := $(MOM6_OBJS)                    \
                $(NETCDF_LIB)                   \
                -lpioc                          \
                $(SYS_LIBS)                     \
-               $(OMP_LIBS)
+               $(OMP_LIBS)                     \
+               -Wl,-rpath,$(FMS_LIBDIR)        \
+               -Wl,-rpath,$(NUOPC_LIBDIR)      \
+               -Wl,-rpath,$(NETCDF_DIR)/lib    \
+               -Wl,-rpath,$(HDF5_DIR)/lib
 
 # ==============================================================================
 # Fontes e objetos
@@ -318,16 +386,17 @@ $(TARGET): $(ALL_OBJS) | dirs
 
 # ==============================================================================
 # Camada 0 - sem dependencia interna de projeto
+# Arquivos MPAS (precisam de -fdefault-real-8 via F90FLAGS_MPAS)
 # ==============================================================================
 
 $(OBJDIR)/mpas_cap_utils.o: $(ATM_DIR)/mpas_cap_utils.F90 | dirs
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
 $(OBJDIR)/mpas_cap_config.o: $(ATM_DIR)/mpas_cap_config.F90 | dirs
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
 $(OBJDIR)/mpas_atm_types.o: $(ATM_DIR)/mpas_atm_types.F90 | dirs
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
 # ==============================================================================
 # Camada 1 - dependem de camada 0
@@ -337,12 +406,12 @@ $(OBJDIR)/mpas_atm_model.o: $(ATM_DIR)/mpas_atm_model.F90  \
                               $(OBJDIR)/mpas_atm_types.o    \
                               $(OBJDIR)/mpas_cap_config.o   \
                               $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
 $(OBJDIR)/mpas_cap_netcdf.o: $(ATM_DIR)/mpas_cap_netcdf.F90 \
                               $(OBJDIR)/mpas_cap_config.o    \
                               $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
 # ==============================================================================
 # Camada 2a - ATM: dependem de camada 1
@@ -350,46 +419,47 @@ $(OBJDIR)/mpas_cap_netcdf.o: $(ATM_DIR)/mpas_cap_netcdf.F90 \
 
 $(OBJDIR)/mpas_atm_wrappers.o: $(ATM_DIR)/mpas_atm_wrappers.F90 \
                                 $(OBJDIR)/mpas_atm_model.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
 $(OBJDIR)/mpas_cap_methods.o: $(ATM_DIR)/mpas_cap_methods.F90 \
                                $(OBJDIR)/mpas_atm_types.o     \
                                $(OBJDIR)/mpas_atm_model.o     \
                                $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
 # ==============================================================================
 # Camada 2b - OCN interna: time_utils, mom_cap_methods, mom_cap_time
-# Dependem apenas de ESMF e FMS (bibliotecas externas ? sem .o interno)
+# B-ABI-01: SEM -fdefault-real-8 (compatibilidade ABI com libfms.a)
 # ==============================================================================
 
 $(OBJDIR)/time_utils.o: $(OCN_DIR)/time_utils.F90 | dirs
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 $(OBJDIR)/mom_cap_methods.o: $(OCN_DIR)/mom_cap_methods.F90 | dirs
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 $(OBJDIR)/mom_cap_time.o: $(OCN_DIR)/mom_cap_time.F90 \
                            $(OBJDIR)/mom_cap_methods.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 # ==============================================================================
 # Camada 2c - Caps independentes: DATM e DOCN (ocn_comp_NUOPC)
-# Dependem de mpas_cap_config (camada 0)
+# B-ABI-01: SEM -fdefault-real-8.
 # ==============================================================================
 
 $(OBJDIR)/DATM_cap.o: $(ATM_DIR)/DATM_cap.F90      \
                       $(OBJDIR)/mpas_cap_config.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 $(OBJDIR)/ocn_comp_NUOPC.o: $(OCN_DIR)/ocn_comp_NUOPC.F90 \
                               $(OBJDIR)/mpas_cap_config.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 # ==============================================================================
 # Camada 3 - Caps principais: mpas_cap, mom_cap, MED_cap
 # ==============================================================================
 
+# mpas_cap: depende de tudo do MPAS. F90FLAGS_MPAS obrigatorio.
 $(OBJDIR)/mpas_cap.o: $(ATM_DIR)/mpas_cap.F90        \
                       $(OBJDIR)/mpas_cap_config.o     \
                       $(OBJDIR)/mpas_atm_types.o      \
@@ -398,18 +468,21 @@ $(OBJDIR)/mpas_cap.o: $(ATM_DIR)/mpas_cap.F90        \
                       $(OBJDIR)/mpas_cap_methods.o    \
                       $(OBJDIR)/mpas_cap_netcdf.o     \
                       $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_MPAS) -c -o $@ $<
 
+# mom_cap: depende de MOM6/FMS. B-ABI-01: F90FLAGS_FMS obrigatorio.
+# Era a CAUSA do crash em set_grid_metrics_from_mosaic.
 $(OBJDIR)/mom_cap.o: $(OCN_DIR)/mom_cap.F90           \
                      $(OBJDIR)/mom_cap_methods.o       \
                      $(OBJDIR)/mom_cap_time.o          \
                      $(OBJDIR)/time_utils.o            \
                      $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
+# MED_cap: troca campos via state, sem acesso direto a "real" do MPAS.
 $(OBJDIR)/MED_cap.o: $(MEDIATOR_DIR)/MED_cap.F90      \
                      $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 # ==============================================================================
 # Camada 4 - Driver NUOPC (src/driver/)
@@ -423,7 +496,7 @@ $(OBJDIR)/esm.o: $(DRIVER_DIR)/esm.F90              \
                  $(OBJDIR)/ocn_comp_NUOPC.o          \
                  $(OBJDIR)/mpas_cap_config.o         \
                  $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 # ==============================================================================
 # Camada 5 - Aplicativo principal (src/main/)
@@ -433,7 +506,7 @@ $(OBJDIR)/esmApp.o: $(MAIN_DIR)/esmApp.F90           \
                     $(OBJDIR)/esm.o                  \
                     $(OBJDIR)/mpas_cap_config.o      \
                     $(OBJDIR)/mpas_cap_utils.o
-	$(FC) $(F90FLAGS) -c -o $@ $<
+	$(FC) $(F90FLAGS_FMS) -c -o $@ $<
 
 # ==============================================================================
 # Execucao local de teste (sem PBS)
@@ -458,12 +531,13 @@ distclean: clean
 # ==============================================================================
 printenv:
 	@echo "======================================================================"
-	@echo " NUOPC-MPAS-Integrado - variaveis de build (Makefile v9.0)"
+	@echo " NUOPC-MPAS-Integrado - variaveis de build (Makefile v9.1)"
 	@echo "======================================================================"
 	@echo "FC           = $(FC)"
 	@echo "ESMFMKFILE   = $(ESMFMKFILE)"
 	@echo "MPAS_DIR     = $(MPAS_DIR)"
 	@echo "MPAS_MOD_DIR = $(MPAS_MOD_DIR)"
+	@echo "MPAS_LIBDIR  = $(MPAS_LIBDIR)"
 	@echo "TARGET       = $(TARGET)"
 	@echo ""
 	@echo "MOM6_LIBDIR  = $(MOM6_LIBDIR)"
